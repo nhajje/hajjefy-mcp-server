@@ -1,0 +1,35 @@
+{
+  "name": "hajjefy-mcp-server",
+  "version": "1.0.0",
+  "description": "Model Context Protocol server for Hajjefy time tracking analytics",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "hajjefy-mcp-server": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "mcp",
+    "time-tracking",
+    "tempo",
+    "hajjefy",
+    "analytics",
+    "claude"
+  ],
+  "author": "Hajjefy",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.18.1",
+    "axios": "^1.12.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

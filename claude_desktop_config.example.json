@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "hajjefy": {
+      "command": "hajjefy-mcp-server",
+      "env": {
+        "HAJJEFY_API_TOKEN": "hjf_live_your_token_here",
+        "HAJJEFY_BASE_URL": "https://hajjefy.com"
+      }
+    }
+  }
+}

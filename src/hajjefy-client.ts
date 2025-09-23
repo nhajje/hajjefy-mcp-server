@@ -1,0 +1,174 @@
+import axios, { AxiosInstance } from 'axios';
+
+export interface DashboardOverview {
+  dateRange: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    hours: number;
+    entries: string;
+    activeDays: number;
+    avgHoursPerDay: number;
+  };
+  topAccounts: Array<{
+    account: string;
+    total_hours: number;
+    percentage: number;
+  }>;
+  topActivities: any[];
+  recentDays: Array<{
+    date: string;
+    total_hours: number;
+    entry_count: string;
+  }>;
+  database: {
+    totalWorklogs: string;
+    totalAttributes: string;
+    dateRange: {
+      earliest: string;
+      latest: string;
+    };
+    uniqueAuthors: string;
+    uniqueAccounts: string;
+    status: string;
+  };
+  requestInfo: {
+    parameters: Record<string, any>;
+    functionName: string;
+    timestamp: string;
+  };
+}
+
+export interface BillableAnalysis {
+  summary: {
+    billableHours: number;
+    nonBillableHours: number;
+    billablePercentage: number;
+  };
+  topBillableAccounts?: Array<{
+    account: string;
+    billableHours: number;
+  }>;
+  monthlyTrend?: Array<{
+    month: string;
+    billableHours: number;
+    billablePercentage: number;
+  }>;
+}
+
+export class HajjefyApiClient {
+  private client: AxiosInstance;
+
+  constructor(baseUrl: string, apiToken: string) {
+    this.client = axios.create({
+      baseURL: baseUrl,
+      timeout: 30000,
+      headers: {
+        'Authorization': `Bearer ${apiToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    // Add response interceptor for error handling
+    this.client.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response?.status === 401) {
+          throw new Error('Authentication failed. Please check your HAJJEFY_API_TOKEN.');
+        } else if (error.response?.status === 403) {
+          throw new Error('Access denied. Token may lack required permissions.');
+        } else if (error.response?.status === 404) {
+          throw new Error('API endpoint not found. Please check your HAJJEFY_BASE_URL.');
+        }
+        throw error;
+      }
+    );
+  }
+
+  async getDashboardOverview(days?: number, fromDate?: string, toDate?: string): Promise<DashboardOverview> {
+    const params = new URLSearchParams();
+
+    if (days) params.set('days', days.toString());
+    if (fromDate) params.set('from', fromDate);
+    if (toDate) params.set('to', toDate);
+
+    const response = await this.client.get(`/api/dashboard/overview?${params.toString()}`);
+    return response.data;
+  }
+
+  async getBillableAnalysis(days?: number, fromDate?: string, toDate?: string): Promise<BillableAnalysis> {
+    const params = new URLSearchParams();
+
+    if (days) params.set('days', days.toString());
+    if (fromDate) params.set('from', fromDate);
+    if (toDate) params.set('to', toDate);
+
+    const response = await this.client.get(`/api/dashboard/billable-analysis?${params.toString()}`);
+    return response.data;
+  }
+
+  async getUserAnalytics(username: string, days?: number): Promise<any> {
+    const params = new URLSearchParams();
+    if (days) params.set('days', days.toString());
+
+    const response = await this.client.get(`/api/dashboard/user-profile/${username}?${params.toString()}`);
+    return response.data;
+  }
+
+  async getTeamWorkload(days?: number): Promise<any> {
+    const params = new URLSearchParams();
+    if (days) params.set('days', days.toString());
+
+    const response = await this.client.get(`/api/dashboard/team-workload-overview?${params.toString()}`);
+    return response.data;
+  }
+
+  async getCapacityAnalysis(days?: number): Promise<any> {
+    const params = new URLSearchParams();
+    if (days) params.set('days', days.toString());
+
+    const response = await this.client.get(`/api/dashboard/capacity-analysis?${params.toString()}`);
+    return response.data;
+  }
+
+  async getDetailedWorklogs(days?: number, limit?: number, offset?: number): Promise<any> {
+    const params = new URLSearchParams();
+    if (days) params.set('days', days.toString());
+    if (limit) params.set('limit', limit.toString());
+    if (offset) params.set('offset', offset.toString());
+
+    const response = await this.client.get(`/api/dashboard/worklogs?${params.toString()}`);
+    return response.data;
+  }
+
+  async getSyncStatus(): Promise<any> {
+    const response = await this.client.get('/api/sync/status');
+    return response.data;
+  }
+
+  async getHealthStatus(): Promise<any> {
+    const response = await this.client.get('/api/health');
+    return response.data;
+  }
+
+  async getDailyHours(days?: number, fromDate?: string, toDate?: string): Promise<any> {
+    const params = new URLSearchParams();
+    if (days) params.set('days', days.toString());
+    if (fromDate) params.set('from', fromDate);
+    if (toDate) params.set('to', toDate);
+
+    const response = await this.client.get(`/api/dashboard/daily?${params.toString()}`);
+    return response.data;
+  }
+
+  async getAccountsBreakdown(days?: number, fromDate?: string, toDate?: string): Promise<any> {
+    const params = new URLSearchParams();
+    if (days) params.set('days', days.toString());
+    if (fromDate) params.set('from', fromDate);
+    if (toDate) params.set('to', toDate);
+
+    const response = await this.client.get(`/api/dashboard/accounts?${params.toString()}`);
+    return response.data;
+  }
+}
