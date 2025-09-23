@@ -331,37 +331,55 @@ This could mean:
       };
     }
 
-    const profile = userAnalytics.profile;
-    const totals = userAnalytics.totals;
+    // Calculate date range for filtering (last N days)
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = endDate.toISOString().split('T')[0];
+
+    // Filter and calculate totals for the requested period
+    let filteredTrends = userAnalytics.userProfile?.dailyBillableTrends || [];
+    if (filteredTrends.length > 0) {
+      filteredTrends = filteredTrends.filter((day: any) => {
+        const dayDate = new Date(day.date).toISOString().split('T')[0];
+        return dayDate >= startDateStr && dayDate <= endDateStr;
+      });
+    }
+
+    // Calculate totals from filtered data
+    const totalHours = filteredTrends.reduce((sum: number, day: any) => sum + (day.totalHours || 0), 0);
+    const billableHours = filteredTrends.reduce((sum: number, day: any) => sum + (day.billableHours || 0), 0);
+    const nonBillableHours = totalHours - billableHours;
+    const totalEntries = filteredTrends.reduce((sum: number, day: any) => sum + (day.worklogCount || 0), 0);
+    const activeDays = filteredTrends.filter((day: any) => day.totalHours > 0).length;
+    const avgHoursPerDay = activeDays > 0 ? totalHours / activeDays : 0;
 
     return {
       content: [
         {
           type: 'text',
-          text: `# 👤 User Analytics: ${username} (${userAnalytics.dateRange.from} to ${userAnalytics.dateRange.to})
+          text: `# 👤 User Analytics: ${username} (${startDateStr} to ${endDateStr})
 
-## 📊 **Total Hours Summary**
-- **Total Hours Logged**: ${totals.hours.toFixed(1)} hours
-- **Billable Hours**: ${totals.billableHours.toFixed(1)} hours (${((totals.billableHours / totals.hours) * 100).toFixed(1)}%)
-- **Non-Billable Hours**: ${(totals.hours - totals.billableHours).toFixed(1)} hours (${(((totals.hours - totals.billableHours) / totals.hours) * 100).toFixed(1)}%)
-- **Total Entries**: ${totals.entries} worklogs
-- **Active Days**: ${totals.activeDays} days
-- **Average Hours/Day**: ${totals.avgHoursPerDay.toFixed(1)} hours
+## 📊 **Total Hours Summary (Last ${days} days)**
+- **Total Hours Logged**: ${totalHours.toFixed(1)} hours
+- **Billable Hours**: ${billableHours.toFixed(1)} hours (${totalHours > 0 ? ((billableHours / totalHours) * 100).toFixed(1) : '0'}%)
+- **Non-Billable Hours**: ${nonBillableHours.toFixed(1)} hours (${totalHours > 0 ? ((nonBillableHours / totalHours) * 100).toFixed(1) : '0'}%)
+- **Total Entries**: ${totalEntries} worklogs
+- **Active Days**: ${activeDays} days
+- **Average Hours/Day**: ${avgHoursPerDay.toFixed(1)} hours
 
 ## 🎯 **Performance Metrics**
-- **Utilization Rate**: ${profile.utilizationRate ? profile.utilizationRate.toFixed(1) + '%' : 'N/A'}
-- **Productivity Score**: ${profile.productivityScore || 'N/A'}
-- **Team Ranking**: ${profile.teamRanking || 'N/A'}
+- **Last Activity**: ${userAnalytics.userProfile?.lastActivity?.lastWorklogDate ? new Date(userAnalytics.userProfile.lastActivity.lastWorklogDate).toLocaleDateString() : 'N/A'}
+- **Days Since Last Activity**: ${userAnalytics.userProfile?.lastActivity?.daysSinceLastActivity || 'N/A'} days
+- **Total Worklogs (All Time)**: ${userAnalytics.userProfile?.lastActivity?.totalWorklogs || 'N/A'}
 
-## 🏢 **Top Projects (Last ${days} days)**
-${userAnalytics.topProjects ? userAnalytics.topProjects.slice(0, 5).map((project: any, i: number) =>
-  `${i + 1}. **${project.account}**: ${project.hours.toFixed(1)}h (${project.percentage}%)`
-).join('\n') : 'No project data available'}
-
-## 📈 **Recent Activity**
-${userAnalytics.recentDays ? userAnalytics.recentDays.slice(0, 7).map((day: any) =>
-  `- **${new Date(day.date).toLocaleDateString()}**: ${day.hours.toFixed(1)}h (${day.entries} entries)`
-).join('\n') : 'No recent activity data available'}
+## 📈 **Recent Daily Activity (Last 7 days)**
+${filteredTrends.slice(-7).map((day: any) => {
+  const date = new Date(day.date).toLocaleDateString();
+  const billablePercent = day.totalHours > 0 ? day.billablePercentage : 0;
+  return `- **${date}**: ${day.totalHours.toFixed(1)}h total (${day.billableHours.toFixed(1)}h billable, ${billablePercent}%, ${day.worklogCount} entries)`;
+}).join('\n') || 'No recent activity in the specified period'}
 
 ---
 *Analysis period: ${days} days | Data retrieved: ${new Date().toISOString()}*`
