@@ -311,7 +311,7 @@ async function handleGetUserAnalytics(args: any) {
     // Get user-specific analytics from Hajjefy API
     const userAnalytics = await hajjefyClient.getUserAnalytics(username, days);
 
-    if (!userAnalytics.success) {
+    if (!userAnalytics.userProfile) {
       return {
         content: [
           {
