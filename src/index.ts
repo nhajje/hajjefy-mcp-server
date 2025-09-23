@@ -307,30 +307,86 @@ ${overview.recentDays.map(day =>
 async function handleGetUserAnalytics(args: any) {
   const { username, days = 30 } = args;
 
-  // Note: This would need a specific user analytics endpoint
-  // For now, we'll use the general overview and filter for context
-  const overview = await hajjefyClient.getDashboardOverview(days);
+  try {
+    // Get user-specific analytics from Hajjefy API
+    const userAnalytics = await hajjefyClient.getUserAnalytics(username, days);
 
-  return {
-    content: [
-      {
-        type: 'text',
-        text: `# User Analytics: ${username}
+    if (!userAnalytics.success) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `# User Analytics: ${username}
 
-**Note**: This is a simplified implementation. In a full version, this would provide detailed user-specific metrics.
+❌ **User not found or no data available**
 
-## Context from Overall System (${days} days)
-- Total system hours: ${overview.totals.hours}
-- Average daily hours: ${overview.totals.avgHoursPerDay}
+This could mean:
+- User name "${username}" doesn't exist in the system
+- No time entries found for the past ${days} days
+- User might be using a different name format
 
-To get detailed user analytics, you would need to:
-1. Use the get_time_summary tool to understand overall context
-2. Request specific user data from your Hajjefy dashboard
-3. Compare individual performance against team averages
-`,
-      },
-    ],
-  };
+**Tip**: Try searching with partial names or check the user list first.`
+          }
+        ]
+      };
+    }
+
+    const profile = userAnalytics.profile;
+    const totals = userAnalytics.totals;
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `# 👤 User Analytics: ${username} (${userAnalytics.dateRange.from} to ${userAnalytics.dateRange.to})
+
+## 📊 **Total Hours Summary**
+- **Total Hours Logged**: ${totals.hours.toFixed(1)} hours
+- **Billable Hours**: ${totals.billableHours.toFixed(1)} hours (${((totals.billableHours / totals.hours) * 100).toFixed(1)}%)
+- **Non-Billable Hours**: ${(totals.hours - totals.billableHours).toFixed(1)} hours (${(((totals.hours - totals.billableHours) / totals.hours) * 100).toFixed(1)}%)
+- **Total Entries**: ${totals.entries} worklogs
+- **Active Days**: ${totals.activeDays} days
+- **Average Hours/Day**: ${totals.avgHoursPerDay.toFixed(1)} hours
+
+## 🎯 **Performance Metrics**
+- **Utilization Rate**: ${profile.utilizationRate ? profile.utilizationRate.toFixed(1) + '%' : 'N/A'}
+- **Productivity Score**: ${profile.productivityScore || 'N/A'}
+- **Team Ranking**: ${profile.teamRanking || 'N/A'}
+
+## 🏢 **Top Projects (Last ${days} days)**
+${userAnalytics.topProjects ? userAnalytics.topProjects.slice(0, 5).map((project: any, i: number) =>
+  `${i + 1}. **${project.account}**: ${project.hours.toFixed(1)}h (${project.percentage}%)`
+).join('\n') : 'No project data available'}
+
+## 📈 **Recent Activity**
+${userAnalytics.recentDays ? userAnalytics.recentDays.slice(0, 7).map((day: any) =>
+  `- **${new Date(day.date).toLocaleDateString()}**: ${day.hours.toFixed(1)}h (${day.entries} entries)`
+).join('\n') : 'No recent activity data available'}
+
+---
+*Analysis period: ${days} days | Data retrieved: ${new Date().toISOString()}*`
+        }
+      ]
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `# User Analytics: ${username}
+
+❌ **Error retrieving user data**
+
+${error instanceof Error ? error.message : 'Unknown error occurred'}
+
+**Suggestions**:
+- Verify the username spelling: "${username}"
+- Try using the exact name format from your time tracking system
+- Check if the user has logged time in the past ${days} days`
+        }
+      ]
+    };
+  }
 }
 
 async function handleGetCapacityAnalysis(args: any) {
