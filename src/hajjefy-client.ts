@@ -171,4 +171,31 @@ export class HajjefyApiClient {
     const response = await this.client.get(`/api/dashboard/accounts?${params.toString()}`);
     return response.data;
   }
+
+  async getCustomerAnalysis(customer: string, days?: number, fromDate?: string, toDate?: string): Promise<any> {
+    // Get detailed worklogs to calculate customer-specific metrics
+    const params = new URLSearchParams();
+    if (days) params.set('days', days.toString());
+    if (fromDate) params.set('from', fromDate);
+    if (toDate) params.set('to', toDate);
+
+    const response = await this.client.get(`/api/dashboard/worklogs?${params.toString()}`);
+    return response.data;
+  }
+
+  async getUserCustomerAllocation(username: string, days?: number, fromDate?: string, toDate?: string): Promise<any> {
+    // Get user profile which includes customer breakdown
+    const params = new URLSearchParams();
+    if (fromDate && toDate) {
+      params.set('from', fromDate);
+      params.set('to', toDate);
+    }
+
+    // Encode username for URL safety
+    const encodedUsername = encodeURIComponent(username);
+    const url = `/api/dashboard/user-profile/${encodedUsername}${params.toString() ? `?${params.toString()}` : ''}`;
+
+    const response = await this.client.get(url);
+    return response.data;
+  }
 }

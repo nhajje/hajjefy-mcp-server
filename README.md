@@ -8,6 +8,10 @@ A Model Context Protocol (MCP) server that provides Claude with access to Hajjef
 - **User Analytics**: Analyze individual user performance and productivity
 - **Team Overview**: View team-wide performance metrics and rankings
 - **Billable Analysis**: Track billable vs non-billable hours and revenue insights
+- **Customer Analysis**: Deep dive into customer-specific metrics and project breakdowns
+- **Capacity Analysis**: Team workload distribution and utilization rates
+- **Daily Hours Breakdown**: Comprehensive daily activity with trends and patterns
+- **Sync Status**: Data freshness and synchronization information
 - **Data Export**: Export time tracking data in JSON or CSV formats
 
 ## Installation

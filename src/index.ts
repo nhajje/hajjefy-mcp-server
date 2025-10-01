@@ -177,6 +177,46 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
+        name: 'get_sync_status',
+        description: 'Get sync status and data freshness information - when was the last sync and what date range is covered',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+          additionalProperties: false,
+        },
+      },
+      {
+        name: 'get_customer_analysis',
+        description: 'Get comprehensive customer analysis including hours breakdown, team allocation, and project details',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            customer: {
+              type: 'string',
+              description: 'Customer name or account code to analyze (e.g., "DHL International", "Centcom", "DHLBILL", "CENTCOM2025")',
+            },
+            days: {
+              type: 'number',
+              description: 'Number of days to analyze (default: 30)',
+              minimum: 1,
+              maximum: 365,
+            },
+            from_date: {
+              type: 'string',
+              format: 'date',
+              description: 'Start date (YYYY-MM-DD format)',
+            },
+            to_date: {
+              type: 'string',
+              format: 'date',
+              description: 'End date (YYYY-MM-DD format)',
+            },
+          },
+          required: ['customer'],
+          additionalProperties: false,
+        },
+      },
+      {
         name: 'get_hajjefy_overview',
         description: 'Get an overview of Hajjefy capabilities and sample prompts to get started',
         inputSchema: {
@@ -227,6 +267,37 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           additionalProperties: false,
         },
       },
+      {
+        name: 'get_user_customer_allocation',
+        description: 'Get detailed customer/account time allocation for a specific user, showing how their hours are distributed across clients and projects',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            username: {
+              type: 'string',
+              description: 'Username or full name to analyze (e.g., "John Smith", "nadim.hajje")',
+            },
+            days: {
+              type: 'number',
+              description: 'Number of days to analyze (default: 30)',
+              minimum: 1,
+              maximum: 365,
+            },
+            from_date: {
+              type: 'string',
+              format: 'date',
+              description: 'Start date (YYYY-MM-DD format)',
+            },
+            to_date: {
+              type: 'string',
+              format: 'date',
+              description: 'End date (YYYY-MM-DD format)',
+            },
+          },
+          required: ['username'],
+          additionalProperties: false,
+        },
+      },
     ],
   };
 });
@@ -251,8 +322,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await handleExportData(args);
       case 'get_daily_hours':
         return await handleGetDailyHours(args);
+      case 'get_customer_analysis':
+        return await handleGetCustomerAnalysis(args);
       case 'get_hajjefy_overview':
         return await handleGetHajjefyOverview(args);
+      case 'get_sync_status':
+        return await handleGetSyncStatus(args);
+      case 'get_user_customer_allocation':
+        return await handleGetUserCustomerAllocation(args);
       default:
         throw new McpError(ErrorCode.MethodNotFound, `Tool '${name}' not found`);
     }
@@ -871,6 +948,395 @@ ${sortedDates.map(date => {
   }
 }
 
+// Helper function to extract customer name from account code
+function getCustomerNameFromAccount(accountCode: string): string {
+  // Remove common suffixes to get customer name
+  const suffixes = ['BILL', 'BILLABLE', 'CSM', 'CSMSUPP', 'TECH', 'TECHSUP', 'SALES', 'SALESSU', 'NONBILL', 'H2H'];
+  let customerName = accountCode;
+
+  // Remove suffixes
+  for (const suffix of suffixes) {
+    if (customerName.endsWith(suffix)) {
+      customerName = customerName.substring(0, customerName.length - suffix.length);
+      break;
+    }
+  }
+
+  // Handle special cases
+  const customerMappings: { [key: string]: string } = {
+    'DHL': 'DHL International',
+    'CENTCOM2025': 'Centcom',
+    'CENTENEDIA2526': 'Centene Media',
+    'CENTENEMIG': 'Centene Migration',
+    'INTERNAL': 'Internal',
+    'INTERNALTI': 'Internal Time Off',
+    'INTERNALTR': 'Internal Training',
+    'RELATECARE': 'Relate Care',
+    'SUPPORT': 'Support',
+    'EDUCATION': 'Education',
+    'AHOLDDEL': 'Ahold Delhaize',
+    'ENCORECAP': 'Encore Capital',
+    'MAXIMUS': 'Maximus',
+    'MAXIMUSFED': 'Maximus Federal',
+    'VIBRANT': 'Vibrant',
+    'HYDROONE': 'Hydro One',
+    'MAPFRE': 'Mapfre',
+    'CAIXASEGURA': 'Caixa Segura',
+    'CIELO': 'Cielo',
+    'ZOOM-PART': 'Zoom Partner',
+    'IHG': 'IHG',
+    'TIHBENEFIT': 'TIH Benefit',
+    'CUSTOMERS': 'Customers',
+    'AMZNCNCT': 'Amazon Connect',
+    'KONE': 'Kone',
+    'USOSM': 'US OSM',
+    'SIRIUSXM': 'SiriusXM',
+    'TRUIST': 'Truist',
+    'BRITISHCOUNCIL': 'British Council',
+    'ZOOMNONBIL': 'Zoom Non-Billable',
+    'WEX': 'WEX',
+    'AUTOPASS': 'AutoPass',
+    'OP360-NRAB': 'OP360 NRAB',
+    'EQUATOR': 'Equator',
+    'PEOPLES': 'Peoples',
+    'PRULIFEUK': 'Prudential Life UK',
+    'GANNETT': 'Gannett',
+    'CHILQUINTA': 'Chilquinta',
+    'EQUATORIAL': 'Equatorial',
+    'AIS': 'AIS',
+    'LIDERANCAS': 'Liderancas',
+    'BIWORLDWIDE': 'BI Worldwide',
+    'BANCOPAT': 'Banco PAT',
+    'NYSOH': 'NYSOH',
+    'TELMEX': 'Telmex',
+    'WILLIAMS': 'Williams',
+    'BURJEELMED': 'Burjeel Medical',
+    'AMWELL': 'Amwell',
+    'PARAGON': 'Paragon',
+    'VISTAR': 'Vistar',
+    'BANCOCOMPA': 'Banco Compa',
+    'TMBTHANAACH': 'TMB Thanachart',
+    'CONAGRA': 'Conagra',
+    'REALPAGE': 'RealPage',
+    'MILETO': 'Mileto',
+    'BISCONTACT': 'BIS Contact',
+    'BNSF': 'BNSF',
+    'CIEE': 'CIEE'
+  };
+
+  return customerMappings[customerName] || customerName;
+}
+
+// Helper function to find customer account by name or code
+function findCustomerAccount(accounts: any[], customerInput: string) {
+  const input = customerInput.toLowerCase();
+
+  // First try exact account code match
+  let match = accounts.find((acc: any) => acc.account.toLowerCase() === input);
+  if (match) return match;
+
+  // Try customer name match
+  match = accounts.find((acc: any) => {
+    const customerName = getCustomerNameFromAccount(acc.account).toLowerCase();
+    return customerName === input || customerName.includes(input);
+  });
+  if (match) return match;
+
+  // Try partial account code match
+  match = accounts.find((acc: any) => acc.account.toLowerCase().includes(input));
+  if (match) return match;
+
+  return null;
+}
+
+async function handleGetCustomerAnalysis(args: any) {
+  try {
+    const { customer, days = 30, from_date, to_date } = args;
+
+    if (!customer) {
+      throw new McpError(ErrorCode.InvalidParams, 'Customer parameter is required');
+    }
+
+    // Get the accounts breakdown
+    const accountsData = await hajjefyClient.getAccountsBreakdown(days, from_date, to_date);
+
+    // Find ALL accounts for this customer (not just one)
+    const customerBaseCode = customer.toLowerCase().replace(/[^a-z]/g, '');
+    const customerAccounts = accountsData.accounts?.filter((acc: any) => {
+      const accountBaseCode = acc.account.toLowerCase().replace(/[^a-z]/g, '');
+      return accountBaseCode.includes(customerBaseCode) ||
+             getCustomerNameFromAccount(acc.account).toLowerCase().includes(customer.toLowerCase());
+    }) || [];
+
+    if (customerAccounts.length === 0) {
+      // Fallback to single account search
+      const singleAccount = findCustomerAccount(accountsData.accounts || [], customer);
+      if (singleAccount) {
+        customerAccounts.push(singleAccount);
+      }
+    }
+
+    if (customerAccounts.length === 0) {
+      // Suggest similar customers by name
+      const similarCustomers = accountsData.accounts
+        ?.filter((acc: any) => {
+          const customerName = getCustomerNameFromAccount(acc.account).toLowerCase();
+          return customerName.includes(customer.toLowerCase().substring(0, 3));
+        })
+        ?.slice(0, 5)
+        ?.map((acc: any) => getCustomerNameFromAccount(acc.account)) || [];
+
+      const suggestion = similarCustomers.length > 0
+        ? `\n\n**Similar customers found:** ${similarCustomers.join(', ')}`
+        : '';
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `❌ **Customer "${customer}" not found**\n\nPlease check the customer name spelling.${suggestion}\n\n**Top 10 active customers:**\n${accountsData.accounts?.slice(0, 10).map((acc: any, i: number) => `${i+1}. ${getCustomerNameFromAccount(acc.account)} (${acc.hours}h)`).join('\n') || 'No data available'}`
+          }
+        ]
+      };
+    }
+
+    // Aggregate all customer accounts
+    const aggregatedMetrics = customerAccounts.reduce((total: any, acc: any) => {
+      // Only count as billable if the account category is 'Billable' or 'Centene'
+      const isBillable = acc.category === 'Billable' || acc.category === 'Centene';
+      const actualBillableHours = isBillable ? acc.hours : 0;
+
+      return {
+        totalHours: total.totalHours + acc.hours,
+        totalEntries: total.totalEntries + acc.entries,
+        billableHours: total.billableHours + actualBillableHours,
+        totalPercentage: total.totalPercentage + acc.percentage
+      };
+    }, { totalHours: 0, totalEntries: 0, billableHours: 0, totalPercentage: 0 });
+
+    // Use the primary account for ranking (first/largest account)
+    const primaryAccount = customerAccounts.sort((a: any, b: any) => b.hours - a.hours)[0];
+
+    // Build customer analysis report
+    const dateRange = accountsData.dateRange || { from: 'N/A', to: 'N/A' };
+    const customerName = getCustomerNameFromAccount(primaryAccount.account);
+
+    let analysisReport = `# 📊 Customer Analysis: ${customerName}\n\n`;
+    analysisReport += `## 📅 **Analysis Period**\n`;
+    analysisReport += `- **Date Range**: ${dateRange.from} to ${dateRange.to}\n`;
+    analysisReport += `- **Analysis Duration**: ${days} days\n\n`;
+
+    // Customer overview with account breakdown
+    analysisReport += `## 🏢 **Customer Overview**\n`;
+    analysisReport += `- **Customer**: ${customerName}\n`;
+    analysisReport += `- **Account Codes**: ${customerAccounts.map((acc: any) => acc.account).join(', ')}\n`;
+    analysisReport += `- **Primary Category**: ${primaryAccount.category || 'N/A'}\n`;
+    analysisReport += `- **Total Hours**: ${aggregatedMetrics.totalHours}h (across ${customerAccounts.length} account${customerAccounts.length > 1 ? 's' : ''})\n`;
+    analysisReport += `- **Total Entries**: ${aggregatedMetrics.totalEntries} worklogs\n`;
+    analysisReport += `- **Billable Hours**: ${aggregatedMetrics.billableHours}h\n`;
+    analysisReport += `- **Share of Total Team**: ${aggregatedMetrics.totalPercentage.toFixed(1)}% of all hours\n\n`;
+
+    // Account breakdown if multiple accounts
+    if (customerAccounts.length > 1) {
+      analysisReport += `## 📋 **Account Breakdown**\n`;
+      customerAccounts.forEach((acc: any, index: number) => {
+        const isBillable = acc.category === 'Billable' || acc.category === 'Centene';
+        const billablePercent = isBillable ? '100%' : '0%';
+        analysisReport += `${index + 1}. **${acc.account}** (${acc.category}): ${acc.hours}h, ${acc.entries} entries (${billablePercent} billable)\n`;
+      });
+      analysisReport += `\n`;
+    }
+
+    // Calculate actual date range for daily average
+    const startDate = new Date(dateRange.from);
+    const endDate = new Date(dateRange.to);
+    const actualDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+    // Ranking based on primary account
+    const customerRank = accountsData.accounts?.findIndex((acc: any) =>
+      acc.account.toLowerCase() === primaryAccount.account.toLowerCase()
+    ) + 1 || 'N/A';
+
+    const billablePercent = aggregatedMetrics.billableHours === aggregatedMetrics.totalHours ? '100%' : Math.round((aggregatedMetrics.billableHours / aggregatedMetrics.totalHours) * 100) + '%';
+
+    analysisReport += `## 📈 **Core Metrics**\n`;
+    analysisReport += `- **Total Hours**: ${aggregatedMetrics.totalHours} hours (${actualDays} days)\n`;
+    analysisReport += `- **Total Worklogs**: ${aggregatedMetrics.totalEntries} entries\n`;
+    analysisReport += `- **Billable Hours**: ${aggregatedMetrics.billableHours} hours (${billablePercent} billable)\n`;
+    analysisReport += `- **Share of Total Team**: ${aggregatedMetrics.totalPercentage.toFixed(1)}% of all hours\n`;
+    analysisReport += `- **Average per Entry**: ${(aggregatedMetrics.totalHours / aggregatedMetrics.totalEntries).toFixed(1)} hours${(aggregatedMetrics.totalHours / aggregatedMetrics.totalEntries) < 2 ? ' (efficient task management)' : (aggregatedMetrics.totalHours / aggregatedMetrics.totalEntries) > 8 ? ' (complex projects)' : ' (balanced workload)'}\n`;
+    analysisReport += `- **Daily Average**: ${(aggregatedMetrics.totalHours / actualDays).toFixed(1)} hours per day\n`;
+    analysisReport += `- **Primary Account Ranking**: #${customerRank} out of ${accountsData.accounts?.length || 0} accounts\n\n`;
+
+    // Note about detailed analysis
+    analysisReport += `## 🔗 **Detailed Analysis**\n`;
+    analysisReport += `For comprehensive team breakdown, daily activity trends, and individual contributor metrics, visit:\n`;
+    analysisReport += `**📊 [Customer Analysis Dashboard](https://hajjefy.com/customer-analysis?customer=${encodeURIComponent(customerName)})**\n\n`;
+
+    // Category breakdown
+    const categoryTotals = accountsData.accounts?.reduce((acc: any, account: any) => {
+      const cat = account.category || 'Uncategorized';
+      acc[cat] = (acc[cat] || 0) + account.hours;
+      return acc;
+    }, {}) || {};
+
+    const customerCategoryHours = categoryTotals[primaryAccount.category || 'Uncategorized'] || 0;
+    const categoryPercentage = customerCategoryHours > 0
+      ? ((aggregatedMetrics.totalHours / customerCategoryHours) * 100).toFixed(1)
+      : '0';
+
+    analysisReport += `## 🏷️ **Category Analysis**\n`;
+    analysisReport += `- **Primary Category**: ${primaryAccount.category || 'Uncategorized'}\n`;
+    analysisReport += `- **Share of Category**: ${categoryPercentage}% of ${primaryAccount.category || 'Uncategorized'} hours\n`;
+    analysisReport += `- **Category Total**: ${customerCategoryHours}h across all accounts\n\n`;
+
+    // Top competitors in same category
+    const competitorAccounts = accountsData.accounts
+      ?.filter((acc: any) =>
+        acc.category === primaryAccount.category &&
+        !customerAccounts.some((custAcc: any) => custAcc.account === acc.account)
+      )
+      ?.slice(0, 5) || [];
+
+    if (competitorAccounts.length > 0) {
+      analysisReport += `## 🏁 **Top Competitors (Same Category)**\n`;
+      competitorAccounts.forEach((comp: any, index: number) => {
+        const compCustomerName = getCustomerNameFromAccount(comp.account);
+        analysisReport += `${index + 1}. **${compCustomerName}**: ${comp.hours}h (${comp.percentage}%)\n`;
+      });
+      analysisReport += `\n`;
+    }
+
+    // Recommendations
+    analysisReport += `## 💡 **Insights & Recommendations**\n`;
+
+    if (customerRank <= 5) {
+      analysisReport += `✅ **Top Performer** - This is one of your top 5 customers\n`;
+    } else if (customerRank <= 20) {
+      analysisReport += `⚡ **Strong Performer** - Solid contributor in top 20\n`;
+    } else {
+      analysisReport += `📈 **Growth Opportunity** - Potential to increase engagement\n`;
+    }
+
+    const avgHoursPerEntry = aggregatedMetrics.totalHours / aggregatedMetrics.totalEntries;
+    if (avgHoursPerEntry > 8) {
+      analysisReport += `⏰ **High-Intensity Work** - Average ${avgHoursPerEntry.toFixed(1)}h per entry\n`;
+    } else if (avgHoursPerEntry < 2) {
+      analysisReport += `⚡ **Quick Tasks** - Efficient ${avgHoursPerEntry.toFixed(1)}h per entry\n`;
+    }
+
+    analysisReport += `\n---\n*Analysis generated: ${new Date().toISOString()}*`;
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: analysisReport
+        }
+      ]
+    };
+
+  } catch (error) {
+    console.error('Error in handleGetCustomerAnalysis:', error);
+    throw new McpError(ErrorCode.InternalError, `Failed to get customer analysis: ${error}`);
+  }
+}
+
+async function handleGetSyncStatus(args: any) {
+  try {
+    // Get database info from overview endpoint
+    const overview = await hajjefyClient.getDashboardOverview(1); // Just need database info
+    const database = overview.database;
+
+    // Calculate data freshness
+    const latestDate = new Date(database.dateRange.latest);
+    const currentDate = new Date();
+    const daysSinceSync = Math.floor((currentDate.getTime() - latestDate.getTime()) / (1000 * 60 * 60 * 24));
+
+    // Determine sync status
+    let syncStatus = '🟢 Up to Date';
+    let freshness = 'Current';
+
+    if (daysSinceSync === 0) {
+      syncStatus = '🟢 Current (Today)';
+      freshness = 'Latest data is from today';
+    } else if (daysSinceSync === 1) {
+      syncStatus = '🟡 1 Day Behind';
+      freshness = 'Latest data is from yesterday';
+    } else if (daysSinceSync <= 3) {
+      syncStatus = `🟡 ${daysSinceSync} Days Behind`;
+      freshness = `Latest data is ${daysSinceSync} days old`;
+    } else {
+      syncStatus = `🔴 ${daysSinceSync} Days Behind`;
+      freshness = `Latest data is ${daysSinceSync} days old - sync may be needed`;
+    }
+
+    // Calculate date range coverage
+    const earliestDate = new Date(database.dateRange.earliest);
+    const totalDays = Math.floor((latestDate.getTime() - earliestDate.getTime()) / (1000 * 60 * 60 * 24));
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `# 🔄 Hajjefy Data Sync Status
+
+## 📊 **Current Sync Status**
+**${syncStatus}**
+
+## ⏰ **Data Freshness**
+- **Last Sync Date**: ${latestDate.toLocaleDateString()} (${latestDate.toLocaleDateString('en-US', { weekday: 'long' })})
+- **Freshness**: ${freshness}
+- **Days Since Last Sync**: ${daysSinceSync} days
+
+## 📅 **Data Coverage**
+- **Date Range**: ${earliestDate.toLocaleDateString()} to ${latestDate.toLocaleDateString()}
+- **Total Coverage**: ${totalDays} days
+- **Start Date**: ${earliestDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+- **End Date**: ${latestDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+
+## 📈 **Database Statistics**
+- **Total Worklogs**: ${parseInt(database.totalWorklogs).toLocaleString()} entries
+- **Total Attributes**: ${parseInt(database.totalAttributes).toLocaleString()} data points
+- **Unique Users**: ${database.uniqueAuthors} active users
+- **Unique Accounts**: ${database.uniqueAccounts} projects/accounts
+- **Connection Status**: ${database.status === 'connected' ? '✅ Connected' : '❌ Disconnected'}
+
+## 💡 **Recommendations**
+${daysSinceSync === 0 ?
+  '✅ Data is current - no action needed' :
+  daysSinceSync <= 3 ?
+  '⚠️ Consider running a sync to get the latest data' :
+  '🚨 Data is stale - sync recommended to ensure accuracy'}
+
+---
+*Status checked: ${new Date().toISOString()}*`
+        }
+      ]
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `# 🔄 Sync Status Error
+
+❌ **Unable to retrieve sync status**
+
+${error instanceof Error ? error.message : 'Unknown error occurred'}
+
+This could indicate:
+- API connectivity issues
+- Authentication problems
+- Server maintenance
+
+**Try again in a few moments or check your Hajjefy dashboard directly.**`
+        }
+      ]
+    };
+  }
+}
+
 async function handleGetHajjefyOverview(args: any) {
   return {
     content: [
@@ -972,6 +1438,126 @@ Welcome to Hajjefy! I'm your AI assistant for analyzing Tempo.io time tracking d
       }
     ]
   };
+}
+
+async function handleGetUserCustomerAllocation(args: any) {
+  const { username, days = 30, from_date, to_date } = args;
+
+  try {
+    // Get user's customer allocation from user profile endpoint
+    const userProfile = await hajjefyClient.getUserCustomerAllocation(username, days, from_date, to_date);
+
+    if (!userProfile || !userProfile.userProfile) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `# Customer Time Allocation: ${username}
+
+❌ **User not found or no data available**
+
+This could mean:
+- User name "${username}" doesn't exist in the system
+- No time entries found for the specified period
+- User might be using a different name format (try full name like "John Smith" or username like "john.doe")
+
+**Tip**: Try searching with different name variations or check if the user has logged time in the selected date range.`
+          }
+        ]
+      };
+    }
+
+    const profile = userProfile.userProfile;
+    const topCustomers = userProfile.topCustomers || [];
+
+    // Calculate date range for display
+    let dateRangeText = '';
+    if (from_date && to_date) {
+      dateRangeText = `${from_date} to ${to_date}`;
+    } else {
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - (days || 30));
+      dateRangeText = `${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`;
+    }
+
+    // Calculate total hours for percentage calculations
+    const totalHours = topCustomers.reduce((sum: number, customer: any) => sum + customer.hours, 0);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `# Customer Time Allocation: ${profile.displayName}
+**Period**: ${dateRangeText}
+
+## 👤 User Overview
+- **Total Hours**: ${totalHours.toFixed(1)} hours
+- **Billable Hours**: ${profile.billableHours?.toFixed(1) || '0.0'} hours (${profile.billablePercentage?.toFixed(1) || '0'}%)
+- **Active Days**: ${profile.activeDays || 'N/A'} days
+- **Utilization**: ${profile.utilizationPercentage?.toFixed(1) || 'N/A'}%
+
+## 🏢 Customer/Account Breakdown
+
+${topCustomers.length > 0 ? topCustomers.map((customer: any, i: number) => {
+  const percentage = totalHours > 0 ? (customer.hours / totalHours * 100).toFixed(1) : '0.0';
+  const billablePercentage = customer.hours > 0 ? (customer.billableHours / customer.hours * 100).toFixed(1) : '0.0';
+
+  return `### ${i + 1}. ${customer.customerName}
+- **Total Hours**: ${customer.hours.toFixed(1)}h (${percentage}% of user's time)
+- **Billable Hours**: ${customer.billableHours.toFixed(1)}h (${billablePercentage}% billable)
+- **Worklogs**: ${customer.worklogCount} entries
+${customer.accounts && customer.accounts.length > 0 ? `- **Accounts**: ${customer.accounts.join(', ')}` : ''}`;
+}).join('\n\n') : 'No customer data available for this period.'}
+
+## 📊 Time Distribution Summary
+${topCustomers.length > 0 ? `
+**Top 3 Customers by Hours:**
+${topCustomers.slice(0, 3).map((customer: any, i: number) =>
+  `${i + 1}. ${customer.customerName}: ${customer.hours.toFixed(1)}h (${totalHours > 0 ? (customer.hours / totalHours * 100).toFixed(1) : '0'}%)`
+).join('\n')}
+
+**Overall Statistics:**
+- **Most Active Customer**: ${topCustomers[0]?.customerName || 'N/A'} (${topCustomers[0]?.hours?.toFixed(1) || '0'}h)
+- **Customer Diversity**: Working with ${topCustomers.length} different customers
+- **Average Hours per Customer**: ${topCustomers.length > 0 ? (totalHours / topCustomers.length).toFixed(1) : '0'}h
+` : '**No time allocation data available for the specified period.**'}
+
+## 💡 Insights
+${topCustomers.length > 0 ? `
+- ${profile.displayName} allocated the most time to **${topCustomers[0]?.customerName}** (${topCustomers[0] ? (topCustomers[0].hours / totalHours * 100).toFixed(1) : '0'}% of total hours)
+${topCustomers.length > 1 ? `- Second most active customer is **${topCustomers[1]?.customerName}** (${topCustomers[1] ? (topCustomers[1].hours / totalHours * 100).toFixed(1) : '0'}% of total hours)` : ''}
+- Overall billable rate: ${profile.billablePercentage?.toFixed(1) || '0'}%
+${topCustomers.length >= 3 ? `- Working with ${topCustomers.length} customers shows good client diversity` : ''}
+` : '- No customer allocation data available - user may not have logged time in this period or data may not be properly categorized.'}
+
+**Note**: This analysis shows how ${profile.displayName}'s time is distributed across different customers/clients based on account mappings in the Tempo.io system.`
+        }
+      ]
+    };
+  } catch (error) {
+    console.error('Error in handleGetUserCustomerAllocation:', error);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `# Customer Time Allocation: ${username}
+
+❌ **Error retrieving customer allocation data**
+
+${error instanceof Error ? error.message : 'Unknown error occurred'}
+
+**Troubleshooting Tips:**
+- Verify the username is spelled correctly
+- Try using the full name format (e.g., "John Smith")
+- Check if the user has logged time in the specified date range
+- Ensure the user exists in the Hajjefy system
+
+**Need help?** Contact your Hajjefy administrator.`
+        }
+      ]
+    };
+  }
 }
 
 // Start the server
