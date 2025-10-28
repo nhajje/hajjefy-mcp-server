@@ -1,6 +1,21 @@
 {
   "mcpServers": {
     "hajjefy": {
+      "comment": "OPTION 1: Use full path (most reliable, recommended for new installs)",
+      "command": "node",
+      "args": [
+        "/ABSOLUTE/PATH/TO/hajjefy-mcp-server/dist/index.js"
+      ],
+      "env": {
+        "HAJJEFY_API_TOKEN": "hjf_live_your_token_here",
+        "HAJJEFY_BASE_URL": "https://hajjefy.com"
+      }
+    }
+  },
+
+  "OPTION_2_GLOBAL_INSTALL": {
+    "hajjefy": {
+      "comment": "OPTION 2: Use global command (requires npm link first)",
       "command": "hajjefy-mcp-server",
       "env": {
         "HAJJEFY_API_TOKEN": "hjf_live_your_token_here",

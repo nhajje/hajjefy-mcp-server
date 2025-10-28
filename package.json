@@ -11,7 +11,9 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "validate": "node validate-setup.js",
+    "postinstall": "echo '\n✅ Installation complete! Run: npm run build && npm run validate'"
   },
   "keywords": [
     "mcp",
