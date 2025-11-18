@@ -198,4 +198,25 @@ export class HajjefyApiClient {
     const response = await this.client.get(url);
     return response.data;
   }
+
+  async getTAMAnalysis(days?: number, fromDate?: string, toDate?: string, customer?: string): Promise<any> {
+    const params = new URLSearchParams();
+    if (days) params.set('days', days.toString());
+    if (fromDate) params.set('from', fromDate);
+    if (toDate) params.set('to', toDate);
+    if (customer) params.set('customer', customer);
+
+    const response = await this.client.get(`/.netlify/functions/tam-analysis?${params.toString()}`);
+    return response.data;
+  }
+
+  async getWorkloadRankings(days?: number, fromDate?: string, toDate?: string): Promise<any> {
+    const params = new URLSearchParams();
+    if (days) params.set('days', days.toString());
+    if (fromDate) params.set('from', fromDate);
+    if (toDate) params.set('to', toDate);
+
+    const response = await this.client.get(`/.netlify/functions/workload-rankings?${params.toString()}`);
+    return response.data;
+  }
 }

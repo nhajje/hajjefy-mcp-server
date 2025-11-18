@@ -11,6 +11,7 @@ A Model Context Protocol (MCP) server that provides Claude with access to Hajjef
 - **Customer Analysis**: Deep dive into customer-specific metrics and project breakdowns
 - **Capacity Analysis**: Team workload distribution and utilization rates
 - **Daily Hours Breakdown**: Comprehensive daily activity with trends and patterns
+- **TAM Insights** ⭐ NEW: Identify best resources for Technical Account Management work on strategic accounts
 - **Sync Status**: Data freshness and synchronization information
 - **Data Export**: Export time tracking data in JSON or CSV formats
 
@@ -139,6 +140,9 @@ Once configured, you can ask Claude questions about your time tracking data:
 - *"Export the last 30 days of data as CSV"*
 - *"How is our team performing compared to last month?"*
 - *"Show me billable vs non-billable hours breakdown"*
+- *"Which resources are best suited for TAM work on strategic accounts?"*
+- *"Identify my top TAM resources with their expertise levels"*
+- *"Get TAM insights for Ahold Delhaize customer"*
 
 ## Available Tools
 
@@ -178,6 +182,31 @@ Export time tracking data in various formats.
 - `format` (optional): Export format - "json" or "csv" (default: "json")
 - `days` (optional): Number of days to export (1-365, default: 30)
 - `include_details` (optional): Include detailed worklog entries (default: false)
+
+### `get_tam_insights` ⭐ NEW
+Get TAM (Technical Account Management) insights to identify which resources are best suited for TAM work on strategic accounts. Analyzes cross-charge hours, user performance, expertise levels, and provides strategic recommendations for resource allocation.
+
+**Parameters:**
+- `days` (optional): Number of days to analyze (1-365, default: 90)
+- `from_date` (optional): Start date in YYYY-MM-DD format
+- `to_date` (optional): End date in YYYY-MM-DD format
+- `customer` (optional): Filter by specific customer/account
+- `min_hours` (optional): Minimum TAM hours threshold to include users (default: 5)
+
+**What it provides:**
+- **TAM Activity Overview**: Total cross-charge hours and resource breakdown
+- **Best Resources for Strategic Accounts**: Top 5 resources with expertise levels and recommendations
+- **TAM Coverage by Role**: Analysis of CSM, Tech, and Sales TAM activities
+- **Expertise Breakdown**: Categorizes users as Experts (≥40h), Experienced (20-40h), or Developing (<20h)
+- **Strategic Recommendations**: Resource allocation strategy and development opportunities
+- **Next Steps**: Actionable guidance for TAM resource planning
+
+**Example prompts:**
+- *"Identify the best resources for TAM work on our strategic accounts"*
+- *"Show me TAM insights for the last 90 days"*
+- *"Which team members are TAM experts and ready for complex strategic accounts?"*
+- *"Get TAM analysis for DHL International customer"*
+- *"Who should I assign to a new strategic account requiring TAM support?"*
 
 ## Environment Variables
 

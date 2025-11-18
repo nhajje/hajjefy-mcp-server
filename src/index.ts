@@ -298,6 +298,41 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           additionalProperties: false,
         },
       },
+      {
+        name: 'get_tam_insights',
+        description: 'Get TAM (Technical Account Management) insights to identify which resources are best suited for TAM work on strategic accounts. Analyzes cross-charge hours, user performance on TAM activities, and provides recommendations for resource allocation.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            days: {
+              type: 'number',
+              description: 'Number of days to analyze (default: 90)',
+              minimum: 1,
+              maximum: 365,
+            },
+            from_date: {
+              type: 'string',
+              format: 'date',
+              description: 'Start date (YYYY-MM-DD format)',
+            },
+            to_date: {
+              type: 'string',
+              format: 'date',
+              description: 'End date (YYYY-MM-DD format)',
+            },
+            customer: {
+              type: 'string',
+              description: 'Filter by specific customer/account (optional)',
+            },
+            min_hours: {
+              type: 'number',
+              description: 'Minimum TAM hours threshold to include users (default: 5)',
+              minimum: 0,
+            },
+          },
+          additionalProperties: false,
+        },
+      },
     ],
   };
 });
@@ -330,6 +365,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await handleGetSyncStatus(args);
       case 'get_user_customer_allocation':
         return await handleGetUserCustomerAllocation(args);
+      case 'get_tam_insights':
+        return await handleGetTAMInsights(args);
       default:
         throw new McpError(ErrorCode.MethodNotFound, `Tool '${name}' not found`);
     }
@@ -1557,6 +1594,214 @@ ${error instanceof Error ? error.message : 'Unknown error occurred'}
         }
       ]
     };
+  }
+}
+
+async function handleGetTAMInsights(args: any) {
+  const { days = 90, from_date, to_date, customer, min_hours = 5 } = args;
+
+  try {
+    // Fetch TAM analysis and workload rankings in parallel
+    const [tamData, workloadData] = await Promise.all([
+      hajjefyClient.getTAMAnalysis(days, from_date, to_date, customer),
+      hajjefyClient.getWorkloadRankings(days, from_date, to_date)
+    ]);
+
+    if (!tamData || !workloadData) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: '❌ **Unable to fetch TAM analysis data**\n\nPlease ensure the TAM analysis endpoints are available and properly configured.'
+          }
+        ]
+      };
+    }
+
+    // Extract TAM user rankings and filter by minimum hours
+    const topTAMUsers = (tamData.topTAMUsers || [])
+      .filter((user: any) => user.tamHours >= min_hours)
+      .map((user: any) => {
+        // Find corresponding user in workload data for additional metrics
+        const workloadUser = workloadData.rankings?.topByTAM?.find(
+          (wu: any) => wu.userName === user.userName
+        );
+
+        return {
+          userName: user.userName,
+          tamHours: user.tamHours,
+          worklogCount: user.worklogCount,
+          totalHours: workloadUser?.totalHours || 0,
+          tamPercentage: workloadUser?.totalHours > 0 ?
+            (user.tamHours / workloadUser.totalHours * 100).toFixed(1) : '0',
+        };
+      });
+
+    // Categorize users by TAM expertise level
+    const experts = topTAMUsers.filter((u: any) => u.tamHours >= 40);
+    const experienced = topTAMUsers.filter((u: any) => u.tamHours >= 20 && u.tamHours < 40);
+    const developing = topTAMUsers.filter((u: any) => u.tamHours >= min_hours && u.tamHours < 20);
+
+    // Calculate TAM coverage by role type
+    const roleBreakdown = tamData.byRole || [];
+    const totalTAMHours = tamData.summary?.totalCrossChargeHours || 0;
+
+    // Build strategic recommendations
+    const recommendations = [];
+
+    if (experts.length === 0) {
+      recommendations.push('⚠️ **No TAM experts identified** - Consider developing TAM capabilities within the team');
+    } else if (experts.length < 3) {
+      recommendations.push(`⚠️ **Limited TAM expertise** - Only ${experts.length} expert${experts.length > 1 ? 's' : ''} identified. Consider cross-training more team members`);
+    }
+
+    if (customer) {
+      recommendations.push(`📊 **Customer Focus**: Analysis filtered for ${customer}. Review customer-specific TAM resource allocation.`);
+    }
+
+    // Identify best resources for strategic accounts
+    const bestForStrategic = topTAMUsers.slice(0, 5).map((user: any, i: number) => {
+      let expertise = 'Expert';
+      if (user.tamHours < 20) expertise = 'Developing';
+      else if (user.tamHours < 40) expertise = 'Experienced';
+
+      return `${i + 1}. **${user.userName}** (${expertise})
+   - TAM Hours: ${user.tamHours.toFixed(1)}h (${user.tamPercentage}% of total time)
+   - Total Hours: ${user.totalHours.toFixed(1)}h
+   - Worklogs: ${user.worklogCount} TAM activities
+   - **Recommendation**: ${getResourceRecommendation(user)}`;
+    });
+
+    // Generate comprehensive report
+    const dateRangeText = tamData.dateRange ?
+      `${tamData.dateRange.from} to ${tamData.dateRange.to}` :
+      `Last ${days} days`;
+
+    let report = `# 🎯 TAM Resource Insights & Strategic Account Allocation
+**Analysis Period**: ${dateRangeText}${customer ? ` | **Customer**: ${customer}` : ''}
+
+## 📊 TAM Activity Overview
+- **Total Cross-Charge Hours**: ${totalTAMHours.toFixed(1)}h
+- **Total TAM Resources**: ${topTAMUsers.length} users (≥${min_hours}h)
+- **TAM Experts**: ${experts.length} users (≥40h)
+- **Experienced TAM**: ${experienced.length} users (20-40h)
+- **Developing TAM**: ${developing.length} users (${min_hours}-20h)
+
+## 🏆 Best Resources for Strategic Accounts
+
+${bestForStrategic.join('\n\n')}
+
+## 📈 TAM Coverage by Role Type
+
+${roleBreakdown.map((role: any) => {
+  const percentage = totalTAMHours > 0 ? (role.totalHours / totalTAMHours * 100).toFixed(1) : '0';
+  return `### ${role.roleType}
+- **Hours**: ${role.totalHours.toFixed(1)}h (${percentage}% of TAM work)
+- **Billable**: ${role.billableHours.toFixed(1)}h (${role.billablePercentage.toFixed(1)}% billable)
+- **Accounts**: ${role.accountCount} cross-charge accounts
+- **Worklogs**: ${role.worklogCount} activities`;
+}).join('\n\n')}
+
+## 🎓 Expertise Breakdown
+
+### 🌟 TAM Experts (≥40h)
+${experts.length > 0 ? experts.slice(0, 5).map((user: any) =>
+  `- **${user.userName}**: ${user.tamHours.toFixed(1)}h TAM (${user.tamPercentage}% of time)`
+).join('\n') : '_No experts in this period_'}
+
+### ⭐ Experienced (20-40h)
+${experienced.length > 0 ? experienced.slice(0, 5).map((user: any) =>
+  `- **${user.userName}**: ${user.tamHours.toFixed(1)}h TAM (${user.tamPercentage}% of time)`
+).join('\n') : '_No experienced users in this period_'}
+
+### 📚 Developing (${min_hours}-20h)
+${developing.length > 0 ? developing.slice(0, 5).map((user: any) =>
+  `- **${user.userName}**: ${user.tamHours.toFixed(1)}h TAM (${user.tamPercentage}% of time)`
+).join('\n') : '_No developing users in this period_'}
+
+## 💡 Strategic Recommendations
+
+${recommendations.length > 0 ? recommendations.map(r => `${r}`).join('\n\n') : '_No specific recommendations at this time_'}
+
+### Resource Allocation Strategy
+${experts.length > 0 ? `
+✅ **Primary TAM Resources** (Experts): ${experts.slice(0, 3).map((u: any) => u.userName).join(', ')}
+   - Best suited for complex strategic accounts
+   - High customer-facing experience
+   - Proven track record in TAM activities
+` : ''}
+${experienced.length > 0 ? `
+⚡ **Secondary TAM Resources** (Experienced): ${experienced.slice(0, 3).map((u: any) => u.userName).join(', ')}
+   - Good for mid-tier strategic accounts
+   - Can support experts on complex engagements
+   - Ready for advancement to expert level
+` : ''}
+${developing.length > 0 ? `
+📈 **Development Opportunities**: ${developing.slice(0, 3).map((u: any) => u.userName).join(', ')}
+   - Shadow expert TAM resources
+   - Assign to smaller strategic accounts
+   - Provide TAM-specific training
+` : ''}
+
+## 🔗 Next Steps
+
+1. **Review Top Performers**: Analyze detailed user profiles for top TAM resources
+2. **Customer Matching**: Use customer analysis to match resources to strategic accounts
+3. **Skill Development**: Identify training needs for developing TAM resources
+4. **Capacity Planning**: Assess if current TAM capacity meets strategic account demands
+
+---
+*Analysis generated: ${new Date().toISOString()}*
+*Minimum TAM hours threshold: ${min_hours}h*`;
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: report
+        }
+      ]
+    };
+  } catch (error) {
+    console.error('Error in handleGetTAMInsights:', error);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `# TAM Insights Error
+
+❌ **Failed to retrieve TAM insights**
+
+${error instanceof Error ? error.message : 'Unknown error occurred'}
+
+**Troubleshooting:**
+- Verify TAM analysis endpoint is available
+- Check API connectivity and authentication
+- Ensure sufficient data exists for the specified period
+- Try a different date range or remove customer filter
+
+**Need help?** Contact your Hajjefy administrator.`
+        }
+      ]
+    };
+  }
+}
+
+// Helper function to generate resource recommendation
+function getResourceRecommendation(user: any): string {
+  const tamPercent = parseFloat(user.tamPercentage);
+  const tamHours = user.tamHours;
+
+  if (tamHours >= 60 && tamPercent >= 30) {
+    return '🌟 **Strategic Account Lead** - High TAM focus and proven expertise. Ideal for top-tier strategic accounts.';
+  } else if (tamHours >= 40) {
+    return '⭐ **Senior TAM Resource** - Strong TAM capability. Suitable for complex strategic accounts or mentoring roles.';
+  } else if (tamHours >= 20 && tamPercent >= 20) {
+    return '✅ **Active TAM Contributor** - Good TAM engagement. Ready for mid-tier strategic accounts.';
+  } else if (tamHours >= 20) {
+    return '📊 **TAM Support Role** - Experienced but lower % allocation. Best for supporting larger strategic accounts.';
+  } else {
+    return '📚 **Developing TAM Skills** - Building TAM experience. Pair with expert for skill development.';
   }
 }
 
