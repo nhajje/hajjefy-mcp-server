@@ -1227,6 +1227,52 @@ async function handleGetCustomerAnalysis(args: any) {
     analysisReport += `- **Share of Category**: ${categoryPercentage}% of ${primaryAccount.category || 'Uncategorized'} hours\n`;
     analysisReport += `- **Category Total**: ${customerCategoryHours}h across all accounts\n\n`;
 
+    // Fetch Salesforce account data
+    try {
+      const salesforceData = await hajjefyClient.getSalesforceAccount(customerName);
+      if (salesforceData && salesforceData.success && salesforceData.account) {
+        const sfAccount = salesforceData.account;
+        analysisReport += `## 🏢 **Salesforce Account Information**\n`;
+
+        if (sfAccount.Owner?.Name) {
+          analysisReport += `- **Account Owner**: ${sfAccount.Owner.Name}\n`;
+        }
+        if (sfAccount.CS_Owner__r?.Name) {
+          analysisReport += `- **CS Owner**: ${sfAccount.CS_Owner__r.Name}\n`;
+        }
+        if (sfAccount.Industry) {
+          analysisReport += `- **Industry**: ${sfAccount.Industry}\n`;
+        }
+        if (sfAccount.Account_Health__c) {
+          analysisReport += `- **Account Health**: ${sfAccount.Account_Health__c}\n`;
+        }
+        if (sfAccount.ARR__c) {
+          analysisReport += `- **ARR**: $${sfAccount.ARR__c.toLocaleString()}\n`;
+        }
+        if (sfAccount.Next_Renewal_Date__c) {
+          const renewalDate = new Date(sfAccount.Next_Renewal_Date__c);
+          analysisReport += `- **Next Renewal Date**: ${renewalDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}\n`;
+        }
+        if (sfAccount.SKPI_Account__c) {
+          analysisReport += `- **SKPI Account**: ${sfAccount.SKPI_Account__c}\n`;
+        }
+        if (sfAccount.TotalCases !== undefined || sfAccount.OpenCases !== undefined) {
+          const totalCases = sfAccount.TotalCases || 0;
+          const openCases = sfAccount.OpenCases || 0;
+          const casesStatus = openCases === 0 && totalCases > 0 ? ' ✓ All cases closed' : '';
+          analysisReport += `- **Support Cases**: ${totalCases} total, ${openCases} open${casesStatus}\n`;
+        }
+        if (sfAccount.Support_Package__c) {
+          analysisReport += `- **Support Package**: ${sfAccount.Support_Package__c}\n`;
+        }
+
+        analysisReport += `\n`;
+      }
+    } catch (error) {
+      // Silently skip Salesforce data if not available
+      console.log('Salesforce data not available for', customerName);
+    }
+
     // Top competitors in same category
     const competitorAccounts = accountsData.accounts
       ?.filter((acc: any) =>

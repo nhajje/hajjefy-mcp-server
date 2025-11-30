@@ -219,4 +219,20 @@ export class HajjefyApiClient {
     const response = await this.client.get(`/.netlify/functions/workload-rankings?${params.toString()}`);
     return response.data;
   }
+
+  async getSalesforceAccount(customer: string): Promise<any> {
+    const params = new URLSearchParams();
+    params.set('customer', customer);
+
+    try {
+      const response = await this.client.get(`/.netlify/functions/salesforce-account?${params.toString()}`);
+      return response.data;
+    } catch (error: any) {
+      // Return null if Salesforce integration is not configured or account not found
+      if (error.response?.status === 404 || error.response?.status === 500) {
+        return null;
+      }
+      throw error;
+    }
+  }
 }
