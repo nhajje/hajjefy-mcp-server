@@ -1229,7 +1229,34 @@ async function handleGetCustomerAnalysis(args: any) {
 
     // Fetch Salesforce account data
     try {
-      const salesforceData = await hajjefyClient.getSalesforceAccount(customerName);
+      // Try multiple name variations for better matching
+      const nameVariations = [customerName];
+
+      // If it's an account code (all caps), try to extract company name
+      if (/^[A-Z0-9]+$/.test(customerName.trim())) {
+        // Try formatted name (e.g., "THOMSONREU" -> "Thomson Reuters")
+        const formatted = customerName.charAt(0) + customerName.slice(1).toLowerCase();
+        // Insert space before "REU", "INC", etc. common suffixes
+        const withSpaces = formatted.replace(/([a-z])([A-Z]|Reu|Inc|Corp|Llc)/g, '$1 $2');
+        nameVariations.push(withSpaces);
+
+        // Also try just the first 7 characters (e.g., "THOMSONREU" -> "Thomson")
+        if (customerName.length > 7) {
+          const short = customerName.substring(0, 7);
+          nameVariations.push(short.charAt(0) + short.slice(1).toLowerCase());
+        }
+      }
+
+      let salesforceData = null;
+      // Try each variation until we find a match
+      for (const nameVariation of nameVariations) {
+        salesforceData = await hajjefyClient.getSalesforceAccount(nameVariation);
+        if (salesforceData && salesforceData.success && salesforceData.account) {
+          console.error(`[Salesforce] Found match using variation: "${nameVariation}"`);
+          break;
+        }
+      }
+
       if (salesforceData && salesforceData.success && salesforceData.account) {
         const sfAccount = salesforceData.account;
         analysisReport += `## 🏢 **Salesforce Account Information**\n`;
