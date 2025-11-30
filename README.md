@@ -8,7 +8,7 @@ A Model Context Protocol (MCP) server that provides Claude with access to Hajjef
 - **User Analytics**: Analyze individual user performance and productivity
 - **Team Overview**: View team-wide performance metrics and rankings
 - **Billable Analysis**: Track billable vs non-billable hours and revenue insights
-- **Customer Analysis**: Deep dive into customer-specific metrics and project breakdowns
+- **Customer Analysis**: Deep dive into customer-specific metrics with Salesforce CRM integration, project breakdowns, team allocation, and comprehensive account insights
 - **Capacity Analysis**: Team workload distribution and utilization rates
 - **Daily Hours Breakdown**: Comprehensive daily activity with trends and patterns
 - **TAM Insights** ⭐ NEW: Identify best resources for Technical Account Management work on strategic accounts
@@ -207,6 +207,51 @@ Get TAM (Technical Account Management) insights to identify which resources are 
 - *"Which team members are TAM experts and ready for complex strategic accounts?"*
 - *"Get TAM analysis for DHL International customer"*
 - *"Who should I assign to a new strategic account requiring TAM support?"*
+
+### `get_customer_analysis` 🆕 ENHANCED
+Get comprehensive customer analysis with Salesforce CRM integration, including account details, time tracking metrics, team allocation, and strategic insights.
+
+**Parameters:**
+- `customer` (required): Customer name to analyze
+- `days` (optional): Number of days to analyze (1-365, default: 90)
+- `from_date` (optional): Start date in YYYY-MM-DD format
+- `to_date` (optional): End date in YYYY-MM-DD format
+
+**Enhanced Features:**
+- **Salesforce Account Integration**: Automatically enriches customer data with Salesforce CRM information including:
+  - Account name, owner, industry, and type
+  - Products/services (Account_Products__c)
+  - WEM enablement status and seat commitments
+  - Support package tier
+  - Desired and achieved outcomes
+  - Account health score
+  - Annual Recurring Revenue (ARR)
+- **Executive Summary Metrics**: Total hours, billable hours, team size, average daily hours
+- **Salesforce Account Card**: Prominently displayed at top of analysis with fuzzy name matching
+- **Time Trends**: Daily time tracking patterns and historical analysis
+- **Team Allocation**: Which team members worked on the account
+- **PDF Export**: Includes Salesforce account information in exported reports
+
+**Recent Improvements (Nov 2025):**
+- Moved Salesforce Account Information to top of page for better visibility
+- Removed redundant Customer Information section
+- Added Salesforce data to PDF export functionality
+- Integrated JSforce for direct Salesforce API connectivity
+- Fuzzy name matching for automatic account linkage (>70% confidence threshold)
+- 5-minute intelligent caching to minimize API calls
+
+**Example prompts:**
+- *"Show me customer analysis for DHL with Salesforce details"*
+- *"Analyze NYCHA customer including CRM information"*
+- *"Get comprehensive Centene account analysis with Salesforce integration"*
+- *"Export customer analysis PDF for Amazon AWS Connect"*
+
+**Salesforce Configuration:**
+Requires environment variables in main Tempo Dashboard:
+- `SALESFORCE_USERNAME`: Salesforce username
+- `SALESFORCE_PASSWORD`: Salesforce password
+- `SALESFORCE_SECURITY_TOKEN`: Salesforce security token
+- `SALESFORCE_LOGIN_URL`: Login URL (default: https://login.salesforce.com)
 
 ## Environment Variables
 
