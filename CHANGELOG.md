@@ -5,6 +5,15 @@ All notable changes to the Hajjefy MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2025-11-30
+
+### Fixed
+- Enhanced name variation matching to handle punctuation differences
+  - Now matches "US Bank" with "U.S. Bank" automatically
+  - Handles common acronyms (US, UK, EU, IT, AI, HR, PR, NY, CA)
+  - Tries variations with and without periods for better Salesforce matching
+  - Improves matching for company names with inconsistent punctuation
+
 ## [1.1.0] - 2025-11-30
 
 ### Added

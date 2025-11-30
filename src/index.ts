@@ -1247,6 +1247,37 @@ async function handleGetCustomerAnalysis(args: any) {
         }
       }
 
+      // Handle punctuation variations (e.g., "US Bank" vs "U.S. Bank")
+      // Try adding periods between consecutive capital letters
+      const withPeriods = customerName.replace(/\b([A-Z])([A-Z])(\s|$)/g, '$1.$2.$3');
+      if (withPeriods !== customerName) {
+        nameVariations.push(withPeriods);
+      }
+
+      // Try removing periods (e.g., "U.S. Bank" -> "US Bank")
+      const withoutPeriods = customerName.replace(/\./g, '');
+      if (withoutPeriods !== customerName) {
+        nameVariations.push(withoutPeriods);
+      }
+
+      // Try variations for common acronyms (e.g., "US" -> "U.S.", "UK" -> "U.K.")
+      const commonAcronyms = ['US', 'UK', 'EU', 'IT', 'AI', 'HR', 'PR', 'NY', 'CA'];
+      for (const acronym of commonAcronyms) {
+        if (customerName.includes(acronym + ' ')) {
+          const withDots = customerName.replace(new RegExp(`\\b${acronym}\\b`, 'g'), acronym.split('').join('.') + '.');
+          if (!nameVariations.includes(withDots)) {
+            nameVariations.push(withDots);
+          }
+        }
+        const dottedAcronym = acronym.split('').join('.') + '.';
+        if (customerName.includes(dottedAcronym)) {
+          const withoutDots = customerName.replace(new RegExp(dottedAcronym.replace(/\./g, '\\.'), 'g'), acronym);
+          if (!nameVariations.includes(withoutDots)) {
+            nameVariations.push(withoutDots);
+          }
+        }
+      }
+
       let salesforceData = null;
       // Try each variation until we find a match
       for (const nameVariation of nameVariations) {
