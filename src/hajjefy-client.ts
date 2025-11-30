@@ -78,9 +78,9 @@ export class HajjefyApiClient {
           throw new Error('Authentication failed. Please check your HAJJEFY_API_TOKEN.');
         } else if (error.response?.status === 403) {
           throw new Error('Access denied. Token may lack required permissions.');
-        } else if (error.response?.status === 404) {
-          throw new Error('API endpoint not found. Please check your HAJJEFY_BASE_URL.');
         }
+        // For 404s, throw original error to preserve response property
+        // This allows individual methods to handle 404s appropriately
         throw error;
       }
     );
