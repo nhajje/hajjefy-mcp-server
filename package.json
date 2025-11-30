@@ -1,6 +1,6 @@
 {
   "name": "hajjefy-mcp-server",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Model Context Protocol server for Hajjefy time tracking analytics",
   "type": "module",
   "main": "dist/index.js",

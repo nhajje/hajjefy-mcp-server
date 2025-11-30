@@ -233,12 +233,17 @@ Get comprehensive customer analysis with Salesforce CRM integration, including a
 - **PDF Export**: Includes Salesforce account information in exported reports
 
 **Recent Improvements (Nov 2025):**
+- **Intelligent Name Variation Matching**: Automatically tries multiple name formats for Salesforce lookups
+  - Converts account codes to company names (e.g., "THOMSONREU" → "Thomson Reuters")
+  - Tests variations until a match is found
+  - Significantly improves match success rate for abbreviated codes
 - Moved Salesforce Account Information to top of page for better visibility
 - Removed redundant Customer Information section
 - Added Salesforce data to PDF export functionality
 - Integrated JSforce for direct Salesforce API connectivity
-- Fuzzy name matching for automatic account linkage (>70% confidence threshold)
+- Fuzzy name matching for automatic account linkage (>60% confidence threshold)
 - 5-minute intelligent caching to minimize API calls
+- Fixed axios interceptor to preserve error responses for proper 404 handling
 
 **Example prompts:**
 - *"Show me customer analysis for DHL with Salesforce details"*
