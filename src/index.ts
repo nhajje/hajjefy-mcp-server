@@ -1269,7 +1269,8 @@ async function handleGetCustomerAnalysis(args: any) {
         analysisReport += `\n`;
       }
     } catch (error) {
-      // Silently skip Salesforce data if not available
+      // Log error to stderr (appears in MCP logs)
+      console.error('[Salesforce] Error fetching data:', error);
     }
 
     // Top competitors in same category
