@@ -1270,7 +1270,6 @@ async function handleGetCustomerAnalysis(args: any) {
       }
     } catch (error) {
       // Silently skip Salesforce data if not available
-      console.log('Salesforce data not available for', customerName);
     }
 
     // Top competitors in same category
