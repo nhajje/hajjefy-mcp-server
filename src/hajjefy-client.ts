@@ -235,4 +235,9 @@ export class HajjefyApiClient {
       throw error;
     }
   }
+
+  async getCustomerPortfolio(): Promise<any> {
+    const response = await this.client.get('/.netlify/functions/customer-portfolio');
+    return response.data;
+  }
 }

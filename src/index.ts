@@ -333,6 +333,26 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           additionalProperties: false,
         },
       },
+      {
+        name: 'get_customer_portfolio',
+        description: 'Get customer portfolio overview showing health status, renewal dates, ARR, cases, and engagement metrics for all customers. Provides a Kanban-style view of customers categorized by health status (Critical, At-Risk, Healthy).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            health_filter: {
+              type: 'string',
+              enum: ['all', 'critical', 'at-risk', 'healthy'],
+              description: 'Filter customers by health status (default: all)',
+            },
+            sort_by: {
+              type: 'string',
+              enum: ['name', 'arr', 'renewal', 'cases', 'gong_calls'],
+              description: 'Sort customers by field (default: renewal)',
+            },
+          },
+          additionalProperties: false,
+        },
+      },
     ],
   };
 });
@@ -367,6 +387,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await handleGetUserCustomerAllocation(args);
       case 'get_tam_insights':
         return await handleGetTAMInsights(args);
+      case 'get_customer_portfolio':
+        return await handleGetCustomerPortfolio(args);
       default:
         throw new McpError(ErrorCode.MethodNotFound, `Tool '${name}' not found`);
     }
@@ -1906,6 +1928,165 @@ function getResourceRecommendation(user: any): string {
     return '📊 **TAM Support Role** - Experienced but lower % allocation. Best for supporting larger strategic accounts.';
   } else {
     return '📚 **Developing TAM Skills** - Building TAM experience. Pair with expert for skill development.';
+  }
+}
+
+// Handle get_customer_portfolio tool
+async function handleGetCustomerPortfolio(args: any) {
+  const { health_filter = 'all', sort_by = 'renewal' } = args;
+
+  try {
+    const portfolioData = await hajjefyClient.getCustomerPortfolio();
+
+    if (!portfolioData.success || !portfolioData.portfolio) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `# Customer Portfolio
+
+❌ **No customer data available**
+
+The customer portfolio could not be loaded. This may be due to:
+- Salesforce integration not configured
+- No customers synced from Salesforce
+- API connectivity issues
+
+**Next Steps:**
+- Verify Salesforce credentials in settings
+- Run customer sync manually
+- Check API health status`
+          }
+        ]
+      };
+    }
+
+    const { portfolio, summary } = portfolioData;
+
+    // Apply health filter
+    let filteredCustomers = portfolio;
+    if (health_filter !== 'all') {
+      filteredCustomers = portfolio.filter((c: any) => c.healthStatus === health_filter);
+    }
+
+    // Apply sorting
+    filteredCustomers.sort((a: any, b: any) => {
+      switch (sort_by) {
+        case 'name':
+          return a.name.localeCompare(b.name);
+        case 'arr':
+          return (b.arr || 0) - (a.arr || 0);
+        case 'renewal':
+          const aDays = a.daysUntilRenewal ?? Infinity;
+          const bDays = b.daysUntilRenewal ?? Infinity;
+          return aDays - bDays;
+        case 'cases':
+          return b.openCases - a.openCases;
+        case 'gong_calls':
+          return a.gongCallCount - b.gongCallCount;
+        default:
+          return 0;
+      }
+    });
+
+    // Group by health status
+    const critical = filteredCustomers.filter((c: any) => c.healthStatus === 'critical');
+    const atRisk = filteredCustomers.filter((c: any) => c.healthStatus === 'at-risk');
+    const healthy = filteredCustomers.filter((c: any) => c.healthStatus === 'healthy' || c.healthStatus === 'unknown');
+
+    // Calculate ARR by status
+    const criticalARR = critical.reduce((sum: number, c: any) => sum + (c.arr || 0), 0);
+    const atRiskARR = atRisk.reduce((sum: number, c: any) => sum + (c.arr || 0), 0);
+    const healthyARR = healthy.reduce((sum: number, c: any) => sum + (c.arr || 0), 0);
+
+    // Format currency helper
+    const formatCurrency = (value: number) => {
+      if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
+      if (value >= 1000) return `$${(value / 1000).toFixed(0)}K`;
+      return `$${value.toFixed(0)}`;
+    };
+
+    // Format customer list
+    const formatCustomerList = (customers: any[], maxShow: number = 10) => {
+      if (customers.length === 0) return '_No customers in this category_';
+
+      const shown = customers.slice(0, maxShow);
+      const lines = shown.map((c: any) => {
+        const renewal = c.daysUntilRenewal !== null ? `${c.daysUntilRenewal}d` : '-';
+        const arr = c.arr ? formatCurrency(c.arr) : '-';
+        const cases = `${c.openCases}/${c.totalCases}`;
+        const gong = c.gongCallCount;
+        const expansion = c.isExpansionOpportunity ? ' ⬆️' : '';
+        return `- **${c.name}**${expansion}: Renewal: ${renewal} | ARR: ${arr} | Cases: ${cases} | Gong: ${gong}`;
+      });
+
+      if (customers.length > maxShow) {
+        lines.push(`  _...and ${customers.length - maxShow} more_`);
+      }
+
+      return lines.join('\n');
+    };
+
+    const report = `# Customer Portfolio Overview
+
+## 📊 Summary
+| Metric | Value |
+|--------|-------|
+| Total Customers | ${summary.totalCustomers} |
+| Total ARR | ${formatCurrency(summary.totalARR)} |
+| Expansion Opportunities | ${summary.expansionOpportunities} |
+| Renewing < 30 days | ${summary.renewingSoon30} |
+| Renewing < 90 days | ${summary.renewingSoon90} |
+
+## 🔴 Critical (${critical.length} customers | ${formatCurrency(criticalARR)} ARR)
+${formatCustomerList(critical)}
+
+## 🟡 At-Risk (${atRisk.length} customers | ${formatCurrency(atRiskARR)} ARR)
+${formatCustomerList(atRisk)}
+
+## 🟢 Healthy (${healthy.length} customers | ${formatCurrency(healthyARR)} ARR)
+${formatCustomerList(healthy)}
+
+## 📈 Key Insights
+
+${critical.length > 0 ? `⚠️ **Immediate Attention**: ${critical.length} critical customers with ${formatCurrency(criticalARR)} ARR at risk` : '✅ No critical customers'}
+
+${summary.renewingSoon30 > 0 ? `📅 **Urgent Renewals**: ${summary.renewingSoon30} customers renewing within 30 days` : ''}
+
+${summary.expansionOpportunities > 0 ? `💰 **Growth Opportunity**: ${summary.expansionOpportunities} customers identified for expansion` : ''}
+
+---
+*Filter: ${health_filter} | Sort: ${sort_by} | Generated: ${new Date().toISOString()}*`;
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: report
+        }
+      ]
+    };
+  } catch (error) {
+    console.error('Error in handleGetCustomerPortfolio:', error);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `# Customer Portfolio Error
+
+❌ **Failed to retrieve customer portfolio**
+
+${error instanceof Error ? error.message : 'Unknown error occurred'}
+
+**Troubleshooting:**
+- Verify Salesforce integration is configured
+- Check API connectivity and authentication
+- Ensure customer sync has completed
+
+**Need help?** Contact your Hajjefy administrator.`
+        }
+      ]
+    };
   }
 }
 
