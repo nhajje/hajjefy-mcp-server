@@ -353,6 +353,43 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           additionalProperties: false,
         },
       },
+      {
+        name: 'get_dm_engagements',
+        description: 'Get Delivery Manager (DM) dashboard showing all active engagements grouped by DM. Includes PS hours budget, actual hours spent from Tempo, utilization percentages, and team breakdown. Correlates Salesforce Engagement data with Tempo time tracking.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            dm_name: {
+              type: 'string',
+              description: 'Filter by specific Delivery Manager name (optional)',
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+      {
+        name: 'get_pm_engagements',
+        description: 'Get Project Manager (PM) dashboard showing all active engagements grouped by PM. Similar to DM dashboard but organized by Project Manager. Includes PS hours budget, actual hours spent, utilization, and team breakdown.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            pm_name: {
+              type: 'string',
+              description: 'Filter by specific Project Manager name (optional)',
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+      {
+        name: 'get_dm_recommendations',
+        description: 'Get DM assignment recommendations for S5/Commit stage opportunities with PS hours. Scores each DM based on expertise match, region/location, industry experience, utilization level, and capacity. Returns top 5 recommended DMs for each opportunity.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+          additionalProperties: false,
+        },
+      },
     ],
   };
 });
@@ -389,6 +426,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await handleGetTAMInsights(args);
       case 'get_customer_portfolio':
         return await handleGetCustomerPortfolio(args);
+      case 'get_dm_engagements':
+        return await handleGetDMEngagements(args);
+      case 'get_pm_engagements':
+        return await handleGetPMEngagements(args);
+      case 'get_dm_recommendations':
+        return await handleGetDMRecommendations(args);
       default:
         throw new McpError(ErrorCode.MethodNotFound, `Tool '${name}' not found`);
     }
@@ -2082,6 +2125,376 @@ ${error instanceof Error ? error.message : 'Unknown error occurred'}
 - Verify Salesforce integration is configured
 - Check API connectivity and authentication
 - Ensure customer sync has completed
+
+**Need help?** Contact your Hajjefy administrator.`
+        }
+      ]
+    };
+  }
+}
+
+// Handle get_dm_engagements tool
+async function handleGetDMEngagements(args: any) {
+  const { dm_name } = args;
+
+  try {
+    const dmData = await hajjefyClient.getDMEngagements();
+
+    if (!dmData.success || !dmData.deliveryManagers) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `# DM Dashboard
+
+❌ **No engagement data available**
+
+The DM dashboard could not be loaded. This may be due to:
+- Salesforce integration not configured
+- No active engagements found
+- API connectivity issues
+
+**Next Steps:**
+- Verify Salesforce credentials in settings
+- Check that Engagement__c records exist
+- Verify API health status`
+          }
+        ]
+      };
+    }
+
+    const { deliveryManagers, summary, insights } = dmData;
+
+    // Filter by DM name if specified
+    let filteredDMs = deliveryManagers;
+    if (dm_name) {
+      filteredDMs = deliveryManagers.filter((dm: any) =>
+        dm.name.toLowerCase().includes(dm_name.toLowerCase())
+      );
+    }
+
+    // Build report
+    let report = `# 👔 Delivery Manager Dashboard
+
+## 📊 Summary
+| Metric | Value |
+|--------|-------|
+| Total Engagements | ${summary.totalEngagements} |
+| Total PS Hours (Budgeted) | ${summary.totalPSHours.toLocaleString()}h |
+| Total Hours Spent | ${summary.totalHoursSpent.toLocaleString()}h |
+| Total Value | $${(summary.totalValue / 1000).toFixed(0)}K |
+| Active DMs | ${summary.activeDMs} |
+| Avg Utilization | ${summary.avgUtilization}% |
+| Over Budget | ${summary.overBudgetCount} engagements |
+
+## 💡 Insights
+${insights.map((i: string) => `- ${i}`).join('\n')}
+
+## 👥 Delivery Managers
+`;
+
+    for (const dm of filteredDMs) {
+      const utilizationColor = dm.utilizationPercent >= 100 ? '🔴' :
+                               dm.utilizationPercent >= 80 ? '🟡' : '🟢';
+
+      report += `
+### ${dm.name}
+| Engagements | PS Hours | Spent | Utilization | Value |
+|-------------|----------|-------|-------------|-------|
+| ${dm.engagementCount} | ${dm.totalPSHours.toLocaleString()}h | ${dm.totalHoursSpent.toLocaleString()}h | ${utilizationColor} ${dm.utilizationPercent}% | $${(dm.totalValue / 1000).toFixed(0)}K |
+
+**Engagements:**
+`;
+
+      for (const eng of dm.engagements.slice(0, 5)) {
+        const engUtil = eng.utilizationPercent >= 100 ? '🔴' :
+                        eng.utilizationPercent >= 80 ? '🟡' : '🟢';
+        report += `- **${eng.accountName}** - ${eng.name} (${eng.stage}) | ${eng.psHours}h budget, ${eng.hoursSpent.toFixed(0)}h spent ${engUtil}\n`;
+      }
+      if (dm.engagements.length > 5) {
+        report += `- ... and ${dm.engagements.length - 5} more engagements\n`;
+      }
+    }
+
+    report += `
+---
+*Generated: ${new Date().toISOString()}*`;
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: report
+        }
+      ]
+    };
+  } catch (error) {
+    console.error('Error in handleGetDMEngagements:', error);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `# DM Dashboard Error
+
+❌ **Failed to retrieve DM engagements**
+
+${error instanceof Error ? error.message : 'Unknown error occurred'}
+
+**Troubleshooting:**
+- Verify Salesforce integration is configured
+- Check API connectivity and authentication
+- Ensure Engagement__c records exist with Delivery_Manager__c field
+
+**Need help?** Contact your Hajjefy administrator.`
+        }
+      ]
+    };
+  }
+}
+
+// Handle get_pm_engagements tool
+async function handleGetPMEngagements(args: any) {
+  const { pm_name } = args;
+
+  try {
+    const pmData = await hajjefyClient.getPMEngagements();
+
+    if (!pmData.success || !pmData.projectManagers) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `# PM Dashboard
+
+❌ **No engagement data available**
+
+The PM dashboard could not be loaded. This may be due to:
+- Salesforce integration not configured
+- No active engagements found
+- API connectivity issues
+
+**Next Steps:**
+- Verify Salesforce credentials in settings
+- Check that Engagement__c records exist with Engagement_PM__c field
+- Verify API health status`
+          }
+        ]
+      };
+    }
+
+    const { projectManagers, summary, insights } = pmData;
+
+    // Filter by PM name if specified
+    let filteredPMs = projectManagers;
+    if (pm_name) {
+      filteredPMs = projectManagers.filter((pm: any) =>
+        pm.name.toLowerCase().includes(pm_name.toLowerCase())
+      );
+    }
+
+    // Build report
+    let report = `# 📋 Project Manager Dashboard
+
+## 📊 Summary
+| Metric | Value |
+|--------|-------|
+| Total Engagements | ${summary.totalEngagements} |
+| Total PS Hours (Budgeted) | ${summary.totalPSHours.toLocaleString()}h |
+| Total Hours Spent | ${summary.totalHoursSpent.toLocaleString()}h |
+| Total Value | $${(summary.totalValue / 1000).toFixed(0)}K |
+| Active PMs | ${summary.activePMs} |
+| Avg Utilization | ${summary.avgUtilization}% |
+| Over Budget | ${summary.overBudgetCount} engagements |
+
+## 💡 Insights
+${insights.map((i: string) => `- ${i}`).join('\n')}
+
+## 👥 Project Managers
+`;
+
+    for (const pm of filteredPMs) {
+      const utilizationColor = pm.utilizationPercent >= 100 ? '🔴' :
+                               pm.utilizationPercent >= 80 ? '🟡' : '🟢';
+
+      report += `
+### ${pm.name}
+| Engagements | PS Hours | Spent | Utilization | Value |
+|-------------|----------|-------|-------------|-------|
+| ${pm.engagementCount} | ${pm.totalPSHours.toLocaleString()}h | ${pm.totalHoursSpent.toLocaleString()}h | ${utilizationColor} ${pm.utilizationPercent}% | $${(pm.totalValue / 1000).toFixed(0)}K |
+
+**Engagements:**
+`;
+
+      for (const eng of pm.engagements.slice(0, 5)) {
+        const engUtil = eng.utilizationPercent >= 100 ? '🔴' :
+                        eng.utilizationPercent >= 80 ? '🟡' : '🟢';
+        report += `- **${eng.accountName}** - ${eng.name} (${eng.stage}) | ${eng.psHours}h budget, ${eng.hoursSpent.toFixed(0)}h spent ${engUtil}\n`;
+      }
+      if (pm.engagements.length > 5) {
+        report += `- ... and ${pm.engagements.length - 5} more engagements\n`;
+      }
+    }
+
+    report += `
+---
+*Generated: ${new Date().toISOString()}*`;
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: report
+        }
+      ]
+    };
+  } catch (error) {
+    console.error('Error in handleGetPMEngagements:', error);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `# PM Dashboard Error
+
+❌ **Failed to retrieve PM engagements**
+
+${error instanceof Error ? error.message : 'Unknown error occurred'}
+
+**Troubleshooting:**
+- Verify Salesforce integration is configured
+- Check API connectivity and authentication
+- Ensure Engagement__c records exist with Engagement_PM__c field
+
+**Need help?** Contact your Hajjefy administrator.`
+        }
+      ]
+    };
+  }
+}
+
+// Handle get_dm_recommendations tool
+async function handleGetDMRecommendations(args: any) {
+  try {
+    const recData = await hajjefyClient.getDMRecommendations();
+
+    if (!recData.success || !recData.opportunities) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `# DM Recommendations
+
+❌ **No recommendation data available**
+
+The DM recommendations could not be loaded. This may be due to:
+- No S5/Commit opportunities with PS Hours
+- Salesforce integration not configured
+- API connectivity issues
+
+**Next Steps:**
+- Verify Salesforce credentials in settings
+- Check that Opportunities exist at S5 Commit stage with PS_Hours__c
+- Verify API health status`
+          }
+        ]
+      };
+    }
+
+    const { opportunities, summary, dmWorkloads, insights } = recData;
+
+    // Build report
+    let report = `# 🎯 DM Assignment Recommendations
+
+## 📊 Summary
+| Metric | Value |
+|--------|-------|
+| S5/Commit Opportunities | ${summary.totalOpportunities} |
+| Total PS Hours | ${summary.totalPSHours.toLocaleString()}h |
+| Total Value | $${(summary.totalValue / 1000).toFixed(0)}K |
+| Active DMs | ${summary.activeDMs} |
+| Avg DM Utilization | ${summary.avgUtilization}% |
+
+## 💡 Key Insights
+${insights.map((i: string) => `- ${i}`).join('\n')}
+
+## 👥 DM Capacity Overview
+| DM | Utilization | Engagements | Capacity | Region | Expertise |
+|----|-------------|-------------|----------|--------|-----------|
+`;
+
+    for (const dm of dmWorkloads.slice(0, 10)) {
+      const utilIcon = dm.utilizationPercent >= 100 ? '🔴' :
+                       dm.utilizationPercent >= 80 ? '🟡' : '🟢';
+      report += `| ${dm.name} | ${utilIcon} ${dm.utilizationPercent}% | ${dm.engagementCount} | ${dm.availableCapacity.toLocaleString()}h | ${dm.region} | ${dm.expertise.slice(0, 2).join(', ')} |\n`;
+    }
+
+    report += `
+## 📋 Opportunities Requiring DM Assignment
+`;
+
+    for (const opp of opportunities.slice(0, 10)) {
+      const { opportunity, recommendations, topRecommendation } = opp;
+
+      report += `
+### ${opportunity.name}
+**Customer:** ${opportunity.accountName} | **PS Hours:** ${opportunity.psHours}h | **Value:** $${(opportunity.amount / 1000).toFixed(0)}K | **Close:** ${opportunity.closeDate}
+**Location:** ${opportunity.billingCountry || 'Unknown'} | **Industry:** ${opportunity.industry || 'Unknown'} | **Platform:** ${opportunity.contactCenterProvider || 'Unknown'}
+
+**🏆 Top Recommendation: ${topRecommendation}**
+
+| Rank | DM | Score | Key Factors |
+|------|-----|-------|-------------|
+`;
+
+      for (let i = 0; i < Math.min(3, recommendations.length); i++) {
+        const rec = recommendations[i];
+        const factors = rec.reasons.slice(0, 2).join(', ');
+        report += `| ${i + 1} | ${rec.dmName} | ${rec.score}/100 | ${factors} |\n`;
+      }
+    }
+
+    if (opportunities.length > 10) {
+      report += `\n*... and ${opportunities.length - 10} more opportunities*\n`;
+    }
+
+    report += `
+---
+## 📈 Scoring Breakdown
+| Factor | Max Points | Description |
+|--------|------------|-------------|
+| Contact Center Expertise | 25 | Match on platform (Amazon, Genesys, Zoom, etc.) |
+| Region/Location | 20 | Geographic proximity to customer |
+| Industry Experience | 15 | Prior work in customer's industry |
+| Utilization Level | 25 | Lower utilization = more capacity |
+| Engagement Count | 10 | Fewer active engagements preferred |
+| Available Capacity | 5 | Has room for the PS hours needed |
+
+---
+*Generated: ${new Date().toISOString()}*`;
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: report
+        }
+      ]
+    };
+  } catch (error) {
+    console.error('Error in handleGetDMRecommendations:', error);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `# DM Recommendations Error
+
+❌ **Failed to retrieve DM recommendations**
+
+${error instanceof Error ? error.message : 'Unknown error occurred'}
+
+**Troubleshooting:**
+- Verify Salesforce integration is configured
+- Check API connectivity and authentication
+- Ensure Opportunities exist at S5/Commit stage with PS_Hours__c
 
 **Need help?** Contact your Hajjefy administrator.`
         }

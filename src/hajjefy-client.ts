@@ -240,4 +240,19 @@ export class HajjefyApiClient {
     const response = await this.client.get('/.netlify/functions/customer-portfolio');
     return response.data;
   }
+
+  async getDMEngagements(): Promise<any> {
+    const response = await this.client.get('/.netlify/functions/dm-engagements');
+    return response.data;
+  }
+
+  async getPMEngagements(): Promise<any> {
+    const response = await this.client.get('/.netlify/functions/pm-engagements');
+    return response.data;
+  }
+
+  async getDMRecommendations(): Promise<any> {
+    const response = await this.client.get('/.netlify/functions/dm-recommendations');
+    return response.data;
+  }
 }
