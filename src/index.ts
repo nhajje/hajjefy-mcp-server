@@ -390,6 +390,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           additionalProperties: false,
         },
       },
+      {
+        name: 'get_tam_dashboard',
+        description: 'Get TAM (Technical Account Manager) dashboard showing Salesforce accounts grouped by assigned TAM. Includes customer details, engagement data, Tempo hours spent, utilization, and team breakdown. Correlates Salesforce Account data (TAM_Assigned__c) with Engagement__c and Tempo time tracking.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            tam_name: {
+              type: 'string',
+              description: 'Filter by specific TAM name (optional)',
+            },
+          },
+          additionalProperties: false,
+        },
+      },
     ],
   };
 });
@@ -432,6 +446,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await handleGetPMEngagements(args);
       case 'get_dm_recommendations':
         return await handleGetDMRecommendations(args);
+      case 'get_tam_dashboard':
+        return await handleGetTAMDashboard(args);
       default:
         throw new McpError(ErrorCode.MethodNotFound, `Tool '${name}' not found`);
     }
@@ -2495,6 +2511,124 @@ ${error instanceof Error ? error.message : 'Unknown error occurred'}
 - Verify Salesforce integration is configured
 - Check API connectivity and authentication
 - Ensure Opportunities exist at S5/Commit stage with PS_Hours__c
+
+**Need help?** Contact your Hajjefy administrator.`
+        }
+      ]
+    };
+  }
+}
+
+// Handle get_tam_dashboard tool
+async function handleGetTAMDashboard(args: any) {
+  const { tam_name } = args;
+
+  try {
+    const tamData = await hajjefyClient.getTAMCustomers();
+
+    if (!tamData.success || !tamData.tams) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `# TAM Dashboard
+
+❌ **No TAM data available**
+
+The TAM dashboard could not be loaded. This may be due to:
+- No accounts with TAM_Assigned__c = true in Salesforce
+- Salesforce integration not configured
+- API connectivity issues
+
+**Next Steps:**
+- Verify Salesforce credentials in settings
+- Set TAM_Assigned__c = true on relevant Account records
+- Verify API health status`
+          }
+        ]
+      };
+    }
+
+    const { tams, summary, insights } = tamData;
+
+    // Filter by TAM name if specified
+    let filteredTAMs = tams;
+    if (tam_name) {
+      filteredTAMs = tams.filter((t: any) =>
+        t.name.toLowerCase().includes(tam_name.toLowerCase())
+      );
+    }
+
+    // Build report
+    let report = `# 🛡️ TAM Dashboard
+
+## 📊 Summary
+| Metric | Value |
+|--------|-------|
+| TAM Accounts | ${summary.totalAccounts} |
+| Total PS Hours (Budgeted) | ${summary.totalPSHours.toLocaleString()}h |
+| Total Hours Spent | ${summary.totalHoursSpent.toLocaleString()}h |
+| Total Value | $${(summary.totalValue / 1000).toFixed(0)}K |
+| Active TAMs | ${summary.activeTAMs} |
+| Avg Utilization | ${summary.avgUtilization}% |
+| Over Budget | ${summary.overBudgetCount} customers |
+
+## 💡 Insights
+${insights.map((i: string) => `- ${i}`).join('\n')}
+
+## 👥 Technical Account Managers
+`;
+
+    for (const tam of filteredTAMs) {
+      const utilizationColor = tam.utilizationPercent >= 100 ? '🔴' :
+                               tam.utilizationPercent >= 80 ? '🟡' : '🟢';
+
+      report += `
+### ${tam.name}
+| Accounts | PS Hours | Spent | Utilization | Value |
+|----------|----------|-------|-------------|-------|
+| ${tam.accountCount} | ${tam.totalPSHours.toLocaleString()}h | ${tam.totalHoursSpent.toLocaleString()}h | ${utilizationColor} ${tam.utilizationPercent}% | $${(tam.totalValue / 1000).toFixed(0)}K |
+
+**Customers:**
+| Customer | Country | Budget | Spent | Utilization | Engagements |
+|----------|---------|--------|-------|-------------|-------------|
+`;
+
+      for (const cust of tam.customers) {
+        const custUtil = cust.utilizationPercent >= 100 ? '🔴' :
+                         cust.utilizationPercent >= 80 ? '🟡' : '🟢';
+        report += `| ${cust.name} | ${cust.country || '-'} | ${cust.totalPSHours > 0 ? cust.totalPSHours + 'h' : '-'} | ${cust.totalHoursSpent > 0 ? cust.totalHoursSpent + 'h' : '-'} | ${cust.totalPSHours > 0 ? custUtil + ' ' + cust.utilizationPercent + '%' : '-'} | ${cust.engagements.length} |\n`;
+      }
+    }
+
+    report += `
+---
+*Generated: ${new Date().toISOString()}*`;
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: report
+        }
+      ]
+    };
+  } catch (error) {
+    console.error('Error in handleGetTAMDashboard:', error);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `# TAM Dashboard Error
+
+❌ **Failed to retrieve TAM dashboard data**
+
+${error instanceof Error ? error.message : 'Unknown error occurred'}
+
+**Troubleshooting:**
+- Verify Salesforce integration is configured
+- Check API connectivity and authentication
+- Ensure Account records have TAM_Assigned__c = true
 
 **Need help?** Contact your Hajjefy administrator.`
         }

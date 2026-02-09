@@ -255,4 +255,9 @@ export class HajjefyApiClient {
     const response = await this.client.get('/.netlify/functions/dm-recommendations');
     return response.data;
   }
+
+  async getTAMCustomers(): Promise<any> {
+    const response = await this.client.get('/.netlify/functions/tam-customers');
+    return response.data;
+  }
 }
