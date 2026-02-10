@@ -260,4 +260,19 @@ export class HajjefyApiClient {
     const response = await this.client.get('/.netlify/functions/tam-customers');
     return response.data;
   }
+
+  async getGongCalls(customer: string): Promise<any> {
+    const params = new URLSearchParams();
+    params.set('customer', customer);
+
+    try {
+      const response = await this.client.get(`/.netlify/functions/salesforce-account?${params.toString()}`);
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return { success: false, error: 'Customer not found' };
+      }
+      throw error;
+    }
+  }
 }

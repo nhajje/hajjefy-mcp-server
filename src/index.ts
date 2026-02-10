@@ -404,6 +404,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           additionalProperties: false,
         },
       },
+      {
+        name: 'get_gong_calls',
+        description: 'Get Gong call history for a specific customer. Returns detailed call information including call titles, dates, recording URLs, call briefs/summaries, and participant emails. Useful for understanding customer engagement and communication history.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            customer: {
+              type: 'string',
+              description: 'Customer name to get Gong calls for (e.g., "Acme Corp", "BigBank")',
+            },
+          },
+          required: ['customer'],
+          additionalProperties: false,
+        },
+      },
     ],
   };
 });
@@ -448,6 +463,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await handleGetDMRecommendations(args);
       case 'get_tam_dashboard':
         return await handleGetTAMDashboard(args);
+      case 'get_gong_calls':
+        return await handleGetGongCalls(args);
       default:
         throw new McpError(ErrorCode.MethodNotFound, `Tool '${name}' not found`);
     }
@@ -2631,6 +2648,135 @@ ${error instanceof Error ? error.message : 'Unknown error occurred'}
 - Ensure Account records have TAM_Assigned__c = true
 
 **Need help?** Contact your Hajjefy administrator.`
+        }
+      ]
+    };
+  }
+}
+
+// Handler for get_gong_calls
+async function handleGetGongCalls(args: any) {
+  const { customer } = args;
+
+  if (!customer) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: '❌ **Error**: Customer name is required. Please provide a customer name to search for Gong calls.'
+        }
+      ]
+    };
+  }
+
+  try {
+    const data = await hajjefyClient.getGongCalls(customer);
+
+    if (!data.success) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `# 📞 Gong Calls - ${customer}
+
+❌ **Customer not found in Salesforce**
+
+Could not find a matching account for "${customer}". Try:
+- Using the full company name
+- Checking spelling
+- Using a different variation of the name`
+          }
+        ]
+      };
+    }
+
+    const account = data.account;
+    const gongCalls = account.GongCallDetails || [];
+    const totalCalls = account.GongCalls || gongCalls.length;
+
+    let report = `# 📞 Gong Calls - ${account.Name}
+
+## 📊 Summary
+- **Account**: ${account.Name}
+- **Total Gong Calls**: ${totalCalls}
+- **Account Owner**: ${account.Owner?.Name || 'N/A'}
+`;
+
+    if (account.Industry) {
+      report += `- **Industry**: ${account.Industry}\n`;
+    }
+    if (account.BillingCountry) {
+      report += `- **Country**: ${account.BillingCountry}\n`;
+    }
+
+    if (gongCalls.length === 0) {
+      report += `
+## 📋 Call History
+*No Gong calls recorded for this customer.*
+`;
+    } else {
+      report += `
+## 📋 Call History (${gongCalls.length} calls)
+
+| Date | Title | Participants | Link |
+|------|-------|--------------|------|
+`;
+
+      for (const call of gongCalls) {
+        const date = call.createdDate ? new Date(call.createdDate).toLocaleDateString() : 'N/A';
+        const title = call.title || 'Untitled Call';
+        const participants = call.participantsEmails
+          ? call.participantsEmails.split(',').slice(0, 3).join(', ') + (call.participantsEmails.split(',').length > 3 ? '...' : '')
+          : 'N/A';
+        const link = call.viewCallUrl ? `[View](${call.viewCallUrl})` : 'N/A';
+
+        report += `| ${date} | ${title} | ${participants} | ${link} |\n`;
+      }
+
+      // Add call briefs section if any have summaries
+      const callsWithBriefs = gongCalls.filter((c: any) => c.brief);
+      if (callsWithBriefs.length > 0) {
+        report += `
+## 📝 Recent Call Summaries
+`;
+        for (const call of callsWithBriefs.slice(0, 5)) {
+          const date = call.createdDate ? new Date(call.createdDate).toLocaleDateString() : 'N/A';
+          report += `
+### ${call.title || 'Call'} (${date})
+${call.brief}
+`;
+        }
+      }
+    }
+
+    report += `
+---
+*Generated: ${new Date().toISOString()}*`;
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: report
+        }
+      ]
+    };
+  } catch (error) {
+    console.error('Error in handleGetGongCalls:', error);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `# 📞 Gong Calls Error
+
+❌ **Failed to retrieve Gong call data for "${customer}"**
+
+${error instanceof Error ? error.message : 'Unknown error occurred'}
+
+**Troubleshooting:**
+- Verify the customer name is correct
+- Check Salesforce integration is configured
+- Ensure Gong integration is set up in Salesforce`
         }
       ]
     };
