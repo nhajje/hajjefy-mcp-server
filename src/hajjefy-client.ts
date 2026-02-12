@@ -275,4 +275,9 @@ export class HajjefyApiClient {
       throw error;
     }
   }
+
+  async getCustomerCases(): Promise<any> {
+    const response = await this.client.get('/.netlify/functions/customer-cases');
+    return response.data;
+  }
 }

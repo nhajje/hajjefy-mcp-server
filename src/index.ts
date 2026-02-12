@@ -419,6 +419,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           additionalProperties: false,
         },
       },
+      {
+        name: 'get_customer_cases',
+        description: 'Get Salesforce case information for all customers. Shows open/closed cases, case aging, categories, JIRA integration status, and generates insights. Optionally filter by customer name to see detailed cases for a specific account.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            customer: {
+              type: 'string',
+              description: 'Optional: Filter cases for a specific customer name (e.g., "Acme Corp"). If not provided, returns summary for all customers.',
+            },
+          },
+          additionalProperties: false,
+        },
+      },
     ],
   };
 });
@@ -465,6 +479,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await handleGetTAMDashboard(args);
       case 'get_gong_calls':
         return await handleGetGongCalls(args);
+      case 'get_customer_cases':
+        return await handleGetCustomerCases(args);
       default:
         throw new McpError(ErrorCode.MethodNotFound, `Tool '${name}' not found`);
     }
@@ -2777,6 +2793,272 @@ ${error instanceof Error ? error.message : 'Unknown error occurred'}
 - Verify the customer name is correct
 - Check Salesforce integration is configured
 - Ensure Gong integration is set up in Salesforce`
+        }
+      ]
+    };
+  }
+}
+
+// Handler for get_customer_cases
+async function handleGetCustomerCases(args: any) {
+  const { customer } = args;
+
+  try {
+    const data = await hajjefyClient.getCustomerCases();
+
+    if (!data.success) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `# 📋 Customer Cases Error
+
+❌ **Failed to retrieve case data**
+
+${data.error || 'Unknown error'}
+
+${data.message || ''}`
+          }
+        ]
+      };
+    }
+
+    const summary = data.summary;
+    const customers = data.customers || [];
+    const insights = data.insights || [];
+
+    // If customer filter is provided, find that specific customer
+    if (customer) {
+      const searchTerm = customer.toLowerCase();
+      const matchedCustomer = customers.find((c: any) =>
+        c.name.toLowerCase().includes(searchTerm) ||
+        c.name.toLowerCase() === searchTerm
+      );
+
+      if (!matchedCustomer) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `# 📋 Customer Cases - ${customer}
+
+❌ **Customer not found**
+
+Could not find a matching customer for "${customer}". Try:
+- Using the full company name
+- Checking spelling
+- Using a different variation of the name
+
+**Available customers with cases:** ${customers.slice(0, 10).map((c: any) => c.name).join(', ')}${customers.length > 10 ? '...' : ''}`
+            }
+          ]
+        };
+      }
+
+      // Return detailed view for specific customer
+      let report = `# 📋 Cases - ${matchedCustomer.name}
+
+## 📊 Summary
+- **Total Cases**: ${matchedCustomer.totalCases}
+- **Open Cases**: ${matchedCustomer.openCases}
+- **Closed Cases**: ${matchedCustomer.closedCases}
+- **Avg Case Age (Open)**: ${matchedCustomer.avgCaseAgeDays} days
+- **JIRA Linked**: ${matchedCustomer.jiraLinkedCases}
+`;
+
+      if (matchedCustomer.csOwner) {
+        report += `- **CS Owner**: ${matchedCustomer.csOwner}\n`;
+      }
+      if (matchedCustomer.industry) {
+        report += `- **Industry**: ${matchedCustomer.industry}\n`;
+      }
+      if (matchedCustomer.country) {
+        report += `- **Country**: ${matchedCustomer.country}\n`;
+      }
+
+      // Aging distribution
+      const aging = matchedCustomer.agingDistribution;
+      report += `
+## ⏱️ Open Case Aging
+- **0-7 days**: ${aging['0-7'] || 0}
+- **8-30 days**: ${aging['8-30'] || 0}
+- **31-90 days**: ${aging['31-90'] || 0}
+- **90+ days**: ${aging['90+'] || 0}
+`;
+
+      // Category breakdown
+      const categories = Object.entries(matchedCustomer.categoryBreakdown)
+        .sort((a: any, b: any) => b[1] - a[1]);
+      if (categories.length > 0) {
+        report += `
+## 📁 Categories
+`;
+        for (const [cat, count] of categories) {
+          report += `- **${cat || 'Uncategorized'}**: ${count}\n`;
+        }
+      }
+
+      // Case list
+      const cases = matchedCustomer.cases || [];
+      if (cases.length > 0) {
+        const openCases = cases.filter((c: any) => !c.isClosed);
+        const closedCases = cases.filter((c: any) => c.isClosed);
+
+        if (openCases.length > 0) {
+          report += `
+## 🔴 Open Cases (${openCases.length})
+
+| Case # | Subject | Status | Category | Age | JIRA |
+|--------|---------|--------|----------|-----|------|
+`;
+          for (const c of openCases.slice(0, 20)) {
+            const jiraStatus = c.jiraLink ? `[${c.jiraStatus || 'Linked'}](${c.jiraLink})` : '-';
+            const subject = (c.subject || 'No subject').substring(0, 40) + (c.subject?.length > 40 ? '...' : '');
+            report += `| ${c.caseNumber} | ${subject} | ${c.status} | ${c.category || '-'} | ${c.ageInDays}d | ${jiraStatus} |\n`;
+          }
+          if (openCases.length > 20) {
+            report += `\n*...and ${openCases.length - 20} more open cases*\n`;
+          }
+        }
+
+        if (closedCases.length > 0) {
+          report += `
+## ✅ Recent Closed Cases (showing up to 10)
+
+| Case # | Subject | Status | Category | Created |
+|--------|---------|--------|----------|---------|
+`;
+          for (const c of closedCases.slice(0, 10)) {
+            const subject = (c.subject || 'No subject').substring(0, 40) + (c.subject?.length > 40 ? '...' : '');
+            const created = new Date(c.createdDate).toLocaleDateString();
+            report += `| ${c.caseNumber} | ${subject} | ${c.status} | ${c.category || '-'} | ${created} |\n`;
+          }
+        }
+      } else {
+        report += `
+## 📋 Cases
+*No cases found for this customer.*
+`;
+      }
+
+      report += `
+---
+*Generated: ${new Date().toISOString()}*`;
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: report
+          }
+        ]
+      };
+    }
+
+    // Return summary view for all customers
+    let report = `# 📋 Customer Cases Dashboard
+
+## 📊 Overall Summary
+- **Customers with Cases**: ${summary.totalCustomersWithCases}
+- **Total Cases**: ${summary.totalCases}
+- **Open Cases**: ${summary.openCases}
+- **Closed Cases**: ${summary.closedCases}
+- **Avg Case Age (Open)**: ${summary.avgCaseAge} days
+- **JIRA Linked**: ${summary.jiraLinkedCases} (${summary.jiraLinkedPercent}%)
+
+## ⏱️ Open Case Aging Distribution
+- **0-7 days**: ${summary.agingDistribution['0-7'] || 0}
+- **8-30 days**: ${summary.agingDistribution['8-30'] || 0}
+- **31-90 days**: ${summary.agingDistribution['31-90'] || 0}
+- **90+ days**: ${summary.agingDistribution['90+'] || 0}
+`;
+
+    // Category breakdown
+    const categories = Object.entries(summary.categoryBreakdown)
+      .sort((a: any, b: any) => b[1] - a[1])
+      .slice(0, 10);
+    if (categories.length > 0) {
+      report += `
+## 📁 Top Categories
+`;
+      for (const [cat, count] of categories) {
+        report += `- **${cat || 'Uncategorized'}**: ${count}\n`;
+      }
+    }
+
+    // Insights
+    if (insights.length > 0) {
+      report += `
+## 💡 Insights
+`;
+      for (const insight of insights) {
+        report += `- ${insight}\n`;
+      }
+    }
+
+    // Top customers by open cases
+    const customersWithOpenCases = customers.filter((c: any) => c.openCases > 0)
+      .sort((a: any, b: any) => b.openCases - a.openCases)
+      .slice(0, 15);
+
+    if (customersWithOpenCases.length > 0) {
+      report += `
+## 🏢 Customers with Most Open Cases
+
+| Customer | Open | Closed | Avg Age | JIRA Linked |
+|----------|------|--------|---------|-------------|
+`;
+      for (const c of customersWithOpenCases) {
+        report += `| ${c.name} | ${c.openCases} | ${c.closedCases} | ${c.avgCaseAgeDays}d | ${c.jiraLinkedCases} |\n`;
+      }
+    }
+
+    // Customers with aging issues
+    const agingIssues = customers.filter((c: any) => c.oldestCaseAgeDays > 90 && c.openCases > 0)
+      .sort((a: any, b: any) => b.oldestCaseAgeDays - a.oldestCaseAgeDays)
+      .slice(0, 10);
+
+    if (agingIssues.length > 0) {
+      report += `
+## ⚠️ Customers with Aging Issues (90+ days)
+
+| Customer | Oldest Case | Open Cases |
+|----------|-------------|------------|
+`;
+      for (const c of agingIssues) {
+        report += `| ${c.name} | ${c.oldestCaseAgeDays} days | ${c.openCases} |\n`;
+      }
+    }
+
+    report += `
+---
+*Use \`get_customer_cases\` with a customer name to see detailed cases for a specific account.*
+*Generated: ${new Date().toISOString()}*`;
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: report
+        }
+      ]
+    };
+  } catch (error) {
+    console.error('Error in handleGetCustomerCases:', error);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `# 📋 Customer Cases Error
+
+❌ **Failed to retrieve case data**
+
+${error instanceof Error ? error.message : 'Unknown error occurred'}
+
+**Troubleshooting:**
+- Verify Salesforce integration is configured
+- Check network connectivity
+- Ensure the customer-cases function is deployed`
         }
       ]
     };
