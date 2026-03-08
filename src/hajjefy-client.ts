@@ -280,4 +280,42 @@ export class HajjefyApiClient {
     const response = await this.client.get('/.netlify/functions/customer-cases');
     return response.data;
   }
+
+  async getLogHoursData(): Promise<any> {
+    const response = await this.client.get('/.netlify/functions/log-hours');
+    return response.data;
+  }
+
+  async aiParseHours(text: string, accounts: any[], activities: string[], recentIssues: any[], todayDate: string, authorAccountId: string): Promise<any> {
+    const response = await this.client.post('/.netlify/functions/ai-parse-hours', {
+      text,
+      accounts,
+      activities,
+      recentIssues,
+      todayDate,
+      authorAccountId,
+    });
+    return response.data;
+  }
+
+  async submitWorklog(payload: {
+    issueKey: string;
+    startDate: string;
+    timeSpentSeconds: number;
+    description?: string;
+    startTime?: string;
+    accountKey?: string;
+    activityType?: string;
+    authorAccountId: string;
+  }): Promise<any> {
+    const response = await this.client.post('/.netlify/functions/log-hours', payload);
+    return response.data;
+  }
+
+  async getAICustomerSummary(customer: string): Promise<any> {
+    const response = await this.client.post('/.netlify/functions/customer-dashboard-ai-enrich', {
+      data: { customerName: customer },
+    });
+    return response.data;
+  }
 }

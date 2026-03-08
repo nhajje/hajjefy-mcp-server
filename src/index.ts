@@ -433,6 +433,40 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           additionalProperties: false,
         },
       },
+      {
+        name: 'log_hours',
+        description: 'Log time in Tempo using natural language. Describe what you worked on and the AI will parse it into worklog entries and submit them to Tempo. Supports multiple entries, date ranges, customer/account matching, and activity types. Example: "I worked on Hydro One for 3 hours on Monday and attended 2 hours of internal meetings on Tuesday".',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            description: {
+              type: 'string',
+              description: 'Natural language description of work done. Include customer/project names, hours, dates, and activity types. Examples: "3 hours on Centene implementation Monday", "2h internal meetings today", "worked on DHL for 4 hours this past week Mon-Thu"',
+            },
+            auto_submit: {
+              type: 'boolean',
+              description: 'If true, automatically submit parsed entries to Tempo without confirmation. If false (default), return parsed entries for review first.',
+            },
+          },
+          required: ['description'],
+          additionalProperties: false,
+        },
+      },
+      {
+        name: 'ai_customer_summary',
+        description: 'Get an AI-generated summary of a customer including workstream analysis, risks, opportunities, value delivered, and roadmap. Uses Claude AI to analyze Gong calls, Jira tickets, support cases, and engagement data to produce actionable insights.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            customer: {
+              type: 'string',
+              description: 'Customer name to analyze (e.g., "Hydro One", "Centene", "DHL International")',
+            },
+          },
+          required: ['customer'],
+          additionalProperties: false,
+        },
+      },
     ],
   };
 });
@@ -481,6 +515,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await handleGetGongCalls(args);
       case 'get_customer_cases':
         return await handleGetCustomerCases(args);
+      case 'log_hours':
+        return await handleLogHours(args);
+      case 'ai_customer_summary':
+        return await handleAICustomerSummary(args);
       default:
         throw new McpError(ErrorCode.MethodNotFound, `Tool '${name}' not found`);
     }
@@ -1677,6 +1715,16 @@ Welcome to Hajjefy! I'm your AI assistant for analyzing Tempo.io time tracking d
 3. **Combine Insights**: "Show capacity analysis and then daily hours for over-capacity users"
 4. **Export When Needed**: "Export this data to CSV" after getting insights you want to save
 
+### **Log Hours (NEW)**
+- "Log 3 hours on Hydro One implementation today"
+- "I worked on Centene for 2 hours Monday and Wednesday, and had 1 hour of internal meetings"
+- "Log 4 hours of billable work on DHL this past week"
+
+### **AI Customer Summary (NEW)**
+- "Give me an AI summary for Hydro One"
+- "What's the AI analysis for Centene?"
+- "Generate an AI customer summary for DHL International"
+
 ## 🎯 Popular Use Cases
 
 - **Weekly Team Reviews**: Track team performance and identify trends
@@ -1684,6 +1732,8 @@ Welcome to Hajjefy! I'm your AI assistant for analyzing Tempo.io time tracking d
 - **Client Reporting**: Export billable hours for specific periods
 - **Performance Analysis**: Identify top performers and optimization opportunities
 - **Project Insights**: Analyze time allocation across different accounts
+- **Log Hours**: Log time entries using natural language via AI parsing
+- **Customer Insights**: Get AI-generated customer summaries with risks, opportunities, and roadmap
 
 ---
 
@@ -3061,6 +3111,297 @@ ${error instanceof Error ? error.message : 'Unknown error occurred'}
 - Ensure the customer-cases function is deployed`
         }
       ]
+    };
+  }
+}
+
+// --- Log Hours handler ---
+async function handleLogHours(args: any) {
+  const { description, auto_submit = false } = args;
+
+  // Step 1: Get dropdown data (accounts, activities, recent issues, author ID)
+  let logHoursData: any;
+  try {
+    logHoursData = await hajjefyClient.getLogHoursData();
+  } catch (error: any) {
+    return {
+      content: [{
+        type: 'text',
+        text: `# ⏱️ Log Hours Error
+
+❌ **Failed to load time tracking data**
+
+${error.message || 'Could not connect to Hajjefy API'}
+
+Make sure you are authenticated and the log-hours function is deployed.`
+      }]
+    };
+  }
+
+  if (!logHoursData.success || !logHoursData.authorAccountId) {
+    return {
+      content: [{
+        type: 'text',
+        text: `# ⏱️ Log Hours Error
+
+❌ **Could not identify your Tempo account**
+
+${logHoursData.matchedAuthor ? `Matched author: ${logHoursData.matchedAuthor}` : 'No matching author found in worklogs.'}
+Your user name: ${logHoursData.userName || 'Unknown'}
+
+Please make sure you have existing worklogs in Tempo so your account can be identified.`
+      }]
+    };
+  }
+
+  // Step 2: AI parse the natural language description
+  const todayDate = new Date().toISOString().split('T')[0];
+  let parsed: any;
+  try {
+    parsed = await hajjefyClient.aiParseHours(
+      description,
+      logHoursData.accounts || [],
+      logHoursData.activities || [],
+      logHoursData.recentIssues || [],
+      todayDate,
+      logHoursData.authorAccountId,
+    );
+  } catch (error: any) {
+    return {
+      content: [{
+        type: 'text',
+        text: `# ⏱️ Log Hours - Parse Error
+
+❌ **AI failed to parse your description**
+
+${error.message || 'Unknown error'}
+
+Try rephrasing. Example: "3 hours on Centene implementation Monday and Wednesday"`
+      }]
+    };
+  }
+
+  if (!parsed.success || !parsed.entries || parsed.entries.length === 0) {
+    return {
+      content: [{
+        type: 'text',
+        text: `# ⏱️ Log Hours - No Entries Parsed
+
+The AI could not extract any worklog entries from your description.
+
+**Summary**: ${parsed.summary || 'N/A'}
+**Clarifications**: ${(parsed.clarifications || []).join(', ') || 'None'}
+
+Try being more specific. Example: "I worked on Hydro One for 2 hours today doing implementation work"`
+      }]
+    };
+  }
+
+  const entries = parsed.entries;
+  const totalHours = entries.reduce((sum: number, e: any) => sum + (e.hours || 0) + (e.minutes || 0) / 60, 0);
+
+  // Build entries table
+  const entriesTable = entries.map((e: any, i: number) => {
+    const duration = `${e.hours || 0}h${e.minutes ? ` ${e.minutes}m` : ''}`;
+    return `${i + 1}. **${e.issueKey}** | ${e.date} | ${duration} | ${e.accountKey || '-'} | ${e.activityType || '-'}\n   _${e.description}_${e.needsIssueKey ? ' ⚠️ Needs issue key' : ''}`;
+  }).join('\n');
+
+  if (!auto_submit) {
+    return {
+      content: [{
+        type: 'text',
+        text: `# ⏱️ Log Hours - Parsed Entries
+
+**Summary**: ${parsed.summary}
+**Total**: ${totalHours.toFixed(1)} hours across ${entries.length} entries
+${(parsed.clarifications || []).length > 0 ? `**Clarifications**: ${parsed.clarifications.join('; ')}` : ''}
+
+## Entries
+${entriesTable}
+
+---
+To submit these entries, call \`log_hours\` again with \`auto_submit: true\` and the same description. Or modify the description to adjust entries.`
+      }]
+    };
+  }
+
+  // Step 3: Auto-submit — create worklogs in Tempo
+  const results: string[] = [];
+  let successCount = 0;
+  let failCount = 0;
+
+  for (const entry of entries) {
+    if (entry.needsIssueKey && entry.issueKey === 'UNKNOWN') {
+      results.push(`❌ Entry ${entry.date} - ${entry.description}: Skipped (no issue key)`);
+      failCount++;
+      continue;
+    }
+
+    const timeSpentSeconds = ((entry.hours || 0) * 3600) + ((entry.minutes || 0) * 60);
+    try {
+      const result = await hajjefyClient.submitWorklog({
+        issueKey: entry.issueKey,
+        startDate: entry.date,
+        timeSpentSeconds,
+        description: entry.description,
+        startTime: entry.startTime || '09:00',
+        accountKey: entry.accountKey || '',
+        activityType: entry.activityType || '',
+        authorAccountId: logHoursData.authorAccountId,
+      });
+
+      if (result.success) {
+        successCount++;
+        results.push(`✅ ${entry.issueKey} | ${entry.date} | ${entry.hours || 0}h${entry.minutes ? ` ${entry.minutes}m` : ''} — Logged (ID: ${result.worklog?.id || 'N/A'})`);
+      } else {
+        failCount++;
+        results.push(`❌ ${entry.issueKey} | ${entry.date} — ${result.error || 'Unknown error'}`);
+      }
+    } catch (error: any) {
+      failCount++;
+      results.push(`❌ ${entry.issueKey} | ${entry.date} — ${error.message || 'Submit failed'}`);
+    }
+  }
+
+  return {
+    content: [{
+      type: 'text',
+      text: `# ⏱️ Log Hours - Submission Results
+
+**Summary**: ${parsed.summary}
+**Results**: ${successCount} succeeded, ${failCount} failed out of ${entries.length} entries
+
+## Details
+${results.join('\n')}`
+    }]
+  };
+}
+
+// --- AI Customer Summary handler ---
+async function handleAICustomerSummary(args: any) {
+  const { customer } = args;
+
+  try {
+    const result = await hajjefyClient.getAICustomerSummary(customer);
+
+    if (!result.success) {
+      return {
+        content: [{
+          type: 'text',
+          text: `# 🤖 AI Customer Summary: ${customer}
+
+❌ **Failed to generate summary**
+
+${result.error || 'Unknown error'}
+
+This could mean:
+- Customer "${customer}" was not found
+- Insufficient data to generate insights
+- ANTHROPIC_API_KEY not configured on the server`
+        }]
+      };
+    }
+
+    // Format workstreams
+    const workstreamsSection = result.workstreams && result.workstreams.length > 0
+      ? result.workstreams.map((ws: any) =>
+          `- **${ws.name}** (${ws.call_count} calls) — _${ws.status}_\n  ${ws.description}`
+        ).join('\n')
+      : '_No workstream data available_';
+
+    // Format risks
+    const risksSection = result.risks && result.risks.length > 0
+      ? result.risks.map((r: any) => {
+          const icon = r.severity === 'high' ? '🔴' : r.severity === 'medium' ? '🟡' : '🟢';
+          return `- ${icon} **${r.title}** (${r.severity})\n  ${r.description}\n  _Mitigation: ${r.mitigation}_`;
+        }).join('\n')
+      : '_No risks identified_';
+
+    // Format opportunities
+    const oppsSection = result.opportunities && result.opportunities.length > 0
+      ? result.opportunities.map((o: any) =>
+          `- **${o.title}** (${o.type})\n  ${o.description}`
+        ).join('\n')
+      : '_No opportunities identified_';
+
+    // Format value delivered
+    const valueSection = result.value_delivered && result.value_delivered.length > 0
+      ? result.value_delivered.map((v: any) =>
+          `- **${v.title}**\n  ${v.description}`
+        ).join('\n')
+      : '_No achievements recorded_';
+
+    // Format roadmap
+    const roadmapSection = result.roadmap && result.roadmap.length > 0
+      ? ['now', 'next', 'later'].map(phase => {
+          const items = result.roadmap.filter((r: any) => r.phase === phase);
+          if (items.length === 0) return '';
+          const label = phase === 'now' ? '🟢 Now' : phase === 'next' ? '🔵 Next' : '⚪ Later';
+          return `**${label}**\n${items.map((r: any) => `  - ${r.title}: ${r.description}`).join('\n')}`;
+        }).filter(Boolean).join('\n')
+      : '_No roadmap items_';
+
+    // Format adoption insights
+    const adoptionSection = result.adoption_insights && result.adoption_insights.length > 0
+      ? result.adoption_insights.map((a: any) => {
+          const icon = a.severity === 'High' ? '🔴' : a.severity === 'Medium' ? '🟡' : '🟢';
+          return `- ${icon} ${a.text}`;
+        }).join('\n')
+      : '';
+
+    // Format report insights
+    const reportSection = result.report_insights && result.report_insights.length > 0
+      ? result.report_insights.map((r: any) => {
+          const icon = r.severity === 'High' ? '🔴' : r.severity === 'Medium' ? '🟡' : '🟢';
+          return `- ${icon} ${r.text}`;
+        }).join('\n')
+      : '';
+
+    let report = `# 🤖 AI Customer Summary: ${customer}
+
+## Active Workstreams
+${workstreamsSection}
+
+## Risks & Concerns
+${risksSection}
+
+## Opportunities
+${oppsSection}
+
+## Value Delivered
+${valueSection}
+
+## Roadmap
+${roadmapSection}`;
+
+    if (adoptionSection) {
+      report += `\n\n## Platform Adoption Insights\n${adoptionSection}`;
+    }
+    if (reportSection) {
+      report += `\n\n## Report Usage Insights\n${reportSection}`;
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: report,
+      }]
+    };
+  } catch (error: any) {
+    return {
+      content: [{
+        type: 'text',
+        text: `# 🤖 AI Customer Summary: ${customer}
+
+❌ **Error generating summary**
+
+${error.message || 'Unknown error'}
+
+**Troubleshooting:**
+- Verify the customer name is correct
+- Check that the customer-dashboard-ai-enrich function is deployed
+- Ensure ANTHROPIC_API_KEY is configured`
+      }]
     };
   }
 }
